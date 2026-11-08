@@ -1,11 +1,15 @@
 #!/bin/zsh
 # Builds a Developer ID–signed, notarized, stapled DMG ready to put on a website.
-#   scripts/release.sh            → build/XDRStat-<version>.dmg
+#   scripts/release.sh            → build/XDRStat.dmg  (upload it to a GitHub release as "XDRStat.dmg";
+#                                   xdrstat.com links to releases/latest/download/XDRStat.dmg)
 #
 # One-time setup (stores notarization credentials in your keychain under the profile "XDRStat"):
 #   xcrun notarytool store-credentials XDRStat --apple-id <your Apple ID email> --team-id R8BK4688WV
 #   (it prompts for an app-specific password from appleid.apple.com → Sign-In and Security)
 # Override the profile name with NOTARY_PROFILE=...
+#
+#   scripts/release.sh --publish  → also creates GitHub release v<version> with XDRStat.dmg attached
+#                                   (needs `gh auth login` once; bump CFBundleShortVersionString first)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -13,7 +17,7 @@ PROFILE="${NOTARY_PROFILE:-XDRStat}"
 IDENTITY=$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)
 [[ -z "$IDENTITY" ]] && { echo "No 'Developer ID Application' identity in the keychain." >&2; exit 1; }
 VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" Resources/Info.plist)
-DMG="build/XDRStat-$VERSION.dmg"
+DMG="build/XDRStat.dmg"
 
 # 1. Build + sign the app (hardened runtime, timestamp, entitlements).
 SIGN_IDENTITY="$IDENTITY" scripts/build-app.sh
@@ -38,3 +42,10 @@ xcrun stapler staple "$DMG"
 # 4. Final Gatekeeper check, as a downloaded file would get.
 spctl -a -t open --context context:primary-signature -vv "$DMG"
 echo "Ready: $DMG"
+
+# 5. Optional: publish as the latest GitHub release (the website's download button points here).
+if [[ "${1:-}" == "--publish" ]]; then
+  gh release create "v$VERSION" "$DMG" --repo karimbacchus/xdrstat \
+    --title "XDRStat $VERSION" --notes "Signed with Developer ID and notarized by Apple. Requires macOS 15+ on Apple Silicon." --latest
+  echo "Published: https://github.com/karimbacchus/xdrstat/releases/tag/v$VERSION"
+fi

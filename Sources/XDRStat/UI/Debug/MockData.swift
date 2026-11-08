@@ -27,7 +27,7 @@ import Foundation
             ClusterSample(id: 0, name: "Super", kind: .superCore, usage: cu(0..<6), frequencyMHz: 3820, maxFrequencyMHz: 4608, powerW: 2.31),
             ClusterSample(id: 1, name: "Performance 1", kind: .performance, usage: cu(6..<12), frequencyMHz: 1650, maxFrequencyMHz: 4000, powerW: 0.64),
             ClusterSample(id: 2, name: "Performance 2", kind: .performance, usage: cu(12..<18), frequencyMHz: 912, maxFrequencyMHz: 4000, powerW: 0.21)]
-        let procNames: [String] = ["Safari", "WindowServer", "Xcode", "Slack", "kernel_task", "Finder"]
+        let procNames: [String] = ["Safari", "WindowServer", "Photos", "Music", "Mail", "Finder"]
         let procCPU: [Double] = [41.2, 18.7, 12.4, 6.1, 4.8, 1.2]
         var procs: [ProcessUsage] = []
         for i in 0..<procNames.count {
@@ -61,11 +61,11 @@ import Foundation
             downBytesPerSec: 3_480_000, upBytesPerSec: 126_000, totalDown: 48_200_000_000, totalUp: 6_900_000_000,
             interfaces: [
                 NetworkInterfaceInfo(bsdName: "en0", displayName: "Wi‑Fi", kind: .wifi, isPrimary: true, isUp: true, ipv4: ["192.168.1.42"],
-                                     ipv6: ["fe80::1c2b:3d4e:5f60:7182", "2a02:8071:1234::42"], macAddress: "a4:83:e7:12:9c:3f", downBytesPerSec: 3_480_000, upBytesPerSec: 126_000),
+                                     ipv6: ["fe80::1c2b:3d4e:5f60:7182", "2001:db8:4a1c::42"], macAddress: "5e:0d:0c:1a:2b:3c", downBytesPerSec: 3_480_000, upBytesPerSec: 126_000),
                 NetworkInterfaceInfo(bsdName: "en5", displayName: "Thunderbolt Ethernet", kind: .ethernet, isPrimary: false, isUp: true, ipv4: ["10.0.4.17"],
-                                     macAddress: "00:e0:4c:68:01:2a", downBytesPerSec: 0, upBytesPerSec: 0)],
-            wifi: WiFiInfo(ssid: "Hyperion-5G", rssi: -58, noise: -92, txRateMbps: 1201, channel: "149 (5 GHz, 80 MHz)", phyMode: "802.11be", security: "WPA3 Personal"),
-            publicIPv4: "84.123.45.67", gateway: "192.168.1.1", dnsServers: ["192.168.1.1", "1.1.1.1"])
+                                     macAddress: "5e:0d:0c:4d:5e:6f", downBytesPerSec: 0, upBytesPerSec: 0)],
+            wifi: WiFiInfo(ssid: "Studio-5G", rssi: -58, noise: -92, txRateMbps: 1201, channel: "149 (5 GHz, 80 MHz)", phyMode: "802.11be", security: "WPA3 Personal"),
+            publicIPv4: "203.0.113.24", gateway: "192.168.1.1", dnsServers: ["192.168.1.1", "1.1.1.1"])
         st.fetchPublicIP = true
         st.netDownHistory = hist(series(n, base: 2_000_000, amp: 2_200_000, seed: 7, lo: 0))
         st.netUpHistory = hist(series(n, base: 150_000, amp: 180_000, seed: 8, lo: 0))

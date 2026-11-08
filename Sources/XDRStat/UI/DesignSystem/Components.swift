@@ -145,7 +145,7 @@ struct ProcessRow: View {
     var body: some View {
         HStack(spacing: 8) {
             Group {
-                if snapshot {
+                if snapshot && !SnapshotOptions.realIcons {
                     // ImageRenderer dims the whole render when a bitmap is present; use a placeholder in snapshots.
                     RoundedRectangle(cornerRadius: 4).fill(LinearGradient(colors: [.gray.opacity(0.7), .gray.opacity(0.4)], startPoint: .top, endPoint: .bottom))
                         .overlay(Text(String(proc.name.prefix(1))).font(.system(size: 9, weight: .bold)).foregroundStyle(.white))
@@ -234,7 +234,7 @@ private struct FooterIcon: View {
     var body: some View {
         Button(action: action) {
             Group {
-                if !snapshot, let id = bundleID, let cg = AppIcons.icon(bundleID: id) {
+                if !snapshot || SnapshotOptions.realIcons, let id = bundleID, let cg = AppIcons.icon(bundleID: id) {
                     Canvas { ctx, size in ctx.draw(Image(decorative: cg, scale: 2), in: CGRect(origin: .zero, size: size)) }
                 } else {
                     Image(systemName: symbol).font(.system(size: 14, weight: .medium)).foregroundStyle(.secondary)

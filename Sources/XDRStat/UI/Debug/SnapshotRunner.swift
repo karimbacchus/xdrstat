@@ -6,6 +6,10 @@ import ImageIO
 @MainActor enum SnapshotRunner {
     static func run(into dir: String) {
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        if ProcessInfo.processInfo.environment["XDRSTAT_SNAPSHOT_SITE"] != nil {
+            site(into: dir)
+            exit(0)
+        }
         if ProcessInfo.processInfo.environment["XDRSTAT_SNAPSHOT_LIVE"] != nil {
             // Render with real data after letting the samplers warm up and fill history.
             let m = SystemMonitor.shared
@@ -37,6 +41,51 @@ import ImageIO
         panel(SensorsPanelContent(state: empty), "sensors-empty", .dark, dir)
         labels(mock, dir)
         exit(0)
+    }
+
+    /// Website screenshots: demo data (no real addresses/apps), real icons, 3x, panel-shaped.
+    private static func site(into dir: String) {
+        SnapshotOptions.realIcons = true
+        let st = MockData.state
+        func shot<V: View>(_ v: V, _ name: String) {
+            // AppKit rendering (ImageRenderer washes out the whole image once a bitmap icon is present).
+            let root = v.environment(\.isSnapshot, true)
+                .background(Color(red: 0.13, green: 0.135, blue: 0.15))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            let host = NSHostingView(rootView: AnyView(root))
+            host.appearance = NSAppearance(named: .darkAqua)
+            let size = host.fittingSize
+            host.frame = NSRect(origin: .zero, size: size)
+            let win = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            win.isOpaque = false; win.backgroundColor = .clear
+            win.appearance = NSAppearance(named: .darkAqua)
+            win.contentView = host
+            host.layoutSubtreeIfNeeded(); host.display()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            let scale: CGFloat = 3
+            guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * scale), pixelsHigh: Int(size.height * scale),
+                                             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                             colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return }
+            rep.size = size
+            host.cacheDisplay(in: host.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "\(dir)/\(name).png"))
+            print("wrote \(name).png \(rep.pixelsWide)x\(rep.pixelsHigh)")
+        }
+        shot(CPUPanelContent(state: st), "panel-cpu")
+        shot(MemoryPanelContent(state: st), "panel-memory")
+        shot(NetworkPanelContent(state: st), "panel-network")
+        shot(SensorsPanelContent(state: st), "panel-sensors")
+        // Menu bar labels, white on transparent (dark menu bar look).
+        func label<V: View>(_ v: V, _ name: String) {
+            let r = ImageRenderer(content: v.frame(height: 22).foregroundStyle(.white).environment(\.colorScheme, .dark)); r.scale = 3; r.isOpaque = false
+            guard let cg = r.cgImage else { return }
+            let url = URL(fileURLWithPath: "\(dir)/\(name).png") as CFURL
+            if let d = CGImageDestinationCreateWithURL(url, "public.png" as CFString, 1, nil) { CGImageDestinationAddImage(d, cg, nil); CGImageDestinationFinalize(d) }
+        }
+        label(CPUMenuLabelContent(state: st), "label-cpu")
+        label(MemoryMenuLabelContent(state: st), "label-memory")
+        label(NetworkMenuLabelContent(state: st), "label-network")
+        label(SensorsMenuLabelContent(state: st), "label-sensors")
     }
 
     private static func bg(_ s: ColorScheme) -> Color { s == .dark ? Color(white: 0.15) : Color(white: 0.95) }

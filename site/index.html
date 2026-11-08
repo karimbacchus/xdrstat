@@ -1,0 +1,477 @@
+<!doctype html>
+<html lang="en">
+<script>document.documentElement.classList.add("js")</script>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XDRStat — every sensor on your M5 MacBook Pro, in the menu bar</title>
+<meta name="description" content="XDRStat is a free menu bar system monitor for M5 Pro and M5 Max MacBook Pro: CPU and GPU per cluster, memory, network and 270+ temperature, fan and power sensors.">
+<link rel="icon" href="img/favicon.png">
+<link rel="apple-touch-icon" href="img/icon.png">
+<meta property="og:title" content="XDRStat">
+<meta property="og:description" content="Every sensor on your M5 MacBook Pro, in the menu bar.">
+<meta property="og:image" content="https://xdrstat.com/img/icon.png">
+<meta property="og:url" content="https://xdrstat.com/">
+<meta name="theme-color" content="#0b0c10">
+<style>
+  :root {
+    --bg: #0b0c10;
+    --bg2: #111318;
+    --card: rgba(255,255,255,.035);
+    --stroke: rgba(255,255,255,.08);
+    --text: #f2f3f5;
+    --muted: #9aa0ab;
+    --faint: #6b717c;
+    --cyan: #22d3ee;
+    --blue: #3b82f6;
+    --pink: #ec4899;
+    --red: #e11d48;
+    --grad: linear-gradient(110deg, var(--cyan) 0%, var(--blue) 45%, var(--red) 100%);
+    --radius: 18px;
+    --max: 1120px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; }
+  img { display: block; max-width: 100%; }
+  .wrap { max-width: var(--max); margin: 0 auto; padding: 0 24px; }
+
+  /* Nav */
+  nav {
+    position: sticky; top: 0; z-index: 10;
+    backdrop-filter: saturate(160%) blur(18px); -webkit-backdrop-filter: saturate(160%) blur(18px);
+    background: rgba(11,12,16,.72); border-bottom: 1px solid var(--stroke);
+  }
+  nav .wrap { display: flex; align-items: center; gap: 28px; height: 60px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; letter-spacing: -.01em; text-decoration: none; }
+  .brand img { width: 28px; height: 28px; }
+  nav .links { display: flex; gap: 22px; margin-left: auto; font-size: 14px; }
+  nav .links a { color: var(--muted); text-decoration: none; transition: color .15s; }
+  nav .links a:hover { color: var(--text); }
+  nav .links a.btn-primary, nav .links a.btn-primary:hover { color: #0b0c10; }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 10px; text-decoration: none; font-weight: 600;
+    border-radius: 999px; padding: 12px 22px; transition: transform .15s ease, box-shadow .2s ease, background .2s;
+  }
+  .btn-primary { background: var(--text); color: #0b0c10; box-shadow: 0 8px 30px rgba(59,130,246,.25); }
+  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 12px 40px rgba(59,130,246,.38); }
+  .btn-ghost { color: var(--text); border: 1px solid var(--stroke); }
+  .btn-ghost:hover { background: rgba(255,255,255,.05); }
+  .btn-small { padding: 8px 16px; font-size: 14px; }
+  .btn svg { width: 18px; height: 18px; }
+
+  /* Hero */
+  .hero { position: relative; padding: 88px 0 40px; overflow: hidden; }
+  .hero::before {
+    content: ""; position: absolute; inset: -30% -10% auto; height: 720px; z-index: -1;
+    background:
+      radial-gradient(40% 50% at 25% 40%, rgba(34,211,238,.18), transparent 70%),
+      radial-gradient(35% 45% at 70% 35%, rgba(225,29,72,.16), transparent 70%),
+      radial-gradient(40% 50% at 50% 70%, rgba(59,130,246,.18), transparent 70%);
+    filter: blur(10px);
+  }
+  .hero .grid { display: grid; grid-template-columns: 1.05fr 1fr; gap: 48px; align-items: center; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted);
+    border: 1px solid var(--stroke); border-radius: 999px; padding: 5px 12px 5px 8px; background: var(--card);
+  }
+  .eyebrow b { background: var(--grad); color: white; font-weight: 650; border-radius: 999px; padding: 1px 8px; font-size: 11px; letter-spacing: .04em; }
+  h1 { font-size: clamp(40px, 6vw, 66px); line-height: 1.04; letter-spacing: -.035em; margin: 22px 0 18px; font-weight: 750; }
+  h1 .g { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .lede { font-size: 19px; color: var(--muted); max-width: 520px; margin: 0 0 30px; }
+  .cta { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .fine { margin-top: 16px; font-size: 13px; color: var(--faint); display: flex; flex-wrap: wrap; gap: 6px 14px; }
+  .fine span { display: inline-flex; align-items: center; gap: 6px; }
+  .fine svg { width: 14px; height: 14px; color: #4ade80; }
+
+  /* Hero desktop mock */
+  .desk {
+    position: relative; border-radius: 22px; aspect-ratio: 1 / 1.08; overflow: hidden;
+    background:
+      radial-gradient(70% 60% at 20% 15%, #1d4ed8 0%, transparent 60%),
+      radial-gradient(60% 60% at 90% 30%, #be123c 0%, transparent 60%),
+      radial-gradient(80% 70% at 50% 100%, #0e7490 0%, transparent 65%),
+      #0a0f24;
+    border: 1px solid var(--stroke);
+    box-shadow: 0 40px 120px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.06);
+  }
+  .menubar {
+    position: absolute; inset: 0 0 auto; height: 34px; display: flex; align-items: center; justify-content: flex-start;
+    gap: 16px; padding: 0 16px; background: rgba(10,12,20,.55); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    font-size: 13px; font-weight: 500; color: #fff;
+  }
+  .menubar img { height: 22px; width: auto; }
+  .menubar .item { position: relative; padding: 2px 6px; border-radius: 6px; }
+  .menubar .item.active { background: rgba(255,255,255,.18); }
+  .menubar .clock { margin-left: auto; opacity: .92; }
+  .hang {
+    position: absolute; top: 40px; left: 22px; width: 300px;
+    border-radius: 14px; overflow: hidden; box-shadow: 0 24px 70px rgba(0,0,0,.6), 0 0 0 .5px rgba(255,255,255,.18);
+    -webkit-mask-image: linear-gradient(#000 78%, transparent); mask-image: linear-gradient(#000 78%, transparent);
+  }
+
+  /* Stats strip */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--stroke); border: 1px solid var(--stroke); border-radius: var(--radius); overflow: hidden; margin: 56px 0 0; }
+  .stats div { background: var(--bg2); padding: 22px 24px; }
+  .stats b { display: block; font-size: 28px; letter-spacing: -.02em; font-weight: 700; }
+  .stats span { color: var(--muted); font-size: 14px; }
+
+  section { padding: 96px 0; }
+  .kicker { font-size: 13px; font-weight: 650; letter-spacing: .12em; text-transform: uppercase; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  h2 { font-size: clamp(30px, 4vw, 44px); line-height: 1.1; letter-spacing: -.03em; margin: 10px 0 14px; font-weight: 720; }
+  .sub { color: var(--muted); font-size: 18px; max-width: 640px; margin: 0; }
+
+  /* Panel showcase */
+  .tabs { display: flex; gap: 8px; margin: 36px 0 28px; flex-wrap: wrap; }
+  .tab {
+    border: 1px solid var(--stroke); background: var(--card); color: var(--muted); font: inherit; font-size: 14px; font-weight: 550;
+    border-radius: 999px; padding: 8px 16px; cursor: pointer; transition: all .15s;
+  }
+  .tab[aria-selected="true"] { color: var(--text); background: rgba(255,255,255,.09); border-color: rgba(255,255,255,.18); }
+  .show { display: grid; grid-template-columns: 340px 1fr; gap: 56px; align-items: start; }
+  .show .shot {
+    border-radius: 14px; overflow: hidden; box-shadow: 0 30px 80px rgba(0,0,0,.5), 0 0 0 .5px rgba(255,255,255,.16);
+    max-height: 720px; -webkit-mask-image: linear-gradient(#000 85%, transparent); mask-image: linear-gradient(#000 85%, transparent);
+  }
+  .show .copy h3 { font-size: 28px; letter-spacing: -.02em; margin: 6px 0 12px; }
+  .show .copy p { color: var(--muted); margin: 0 0 18px; }
+  .show ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+  .show li { display: flex; gap: 12px; align-items: flex-start; }
+  .show li i { flex: none; width: 22px; height: 22px; border-radius: 7px; margin-top: 2px; background: var(--grad); opacity: .9; display: grid; place-items: center; }
+  .show li i::after { content: ""; width: 8px; height: 4px; border: 2px solid #fff; border-top: 0; border-right: 0; transform: rotate(-45deg) translate(1px,-1px); }
+  .panel-view[hidden] { display: none; }
+
+  /* Feature grid */
+  .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 40px; }
+  .feature { background: var(--card); border: 1px solid var(--stroke); border-radius: var(--radius); padding: 26px; }
+  .feature .ic { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: rgba(255,255,255,.06); margin-bottom: 16px; }
+  .feature .ic svg { width: 22px; height: 22px; stroke: url(#g); }
+  .feature h4 { margin: 0 0 6px; font-size: 17px; letter-spacing: -.01em; }
+  .feature p { margin: 0; color: var(--muted); font-size: 15px; }
+
+  /* Download */
+  .download {
+    text-align: center; border: 1px solid var(--stroke); border-radius: 28px; padding: 64px 24px;
+    background: radial-gradient(60% 80% at 50% 0%, rgba(59,130,246,.16), transparent 70%), var(--bg2);
+  }
+  .download img.icon { width: 112px; height: 112px; margin: 0 auto 18px; filter: drop-shadow(0 18px 40px rgba(59,130,246,.35)); }
+  .download .meta { color: var(--faint); font-size: 14px; margin-top: 14px; }
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; max-width: 820px; margin: 40px auto 0; text-align: left; }
+  .steps div { background: var(--card); border: 1px solid var(--stroke); border-radius: 14px; padding: 18px; font-size: 15px; color: var(--muted); }
+  .steps b { display: block; color: var(--text); margin-bottom: 4px; }
+
+  /* FAQ */
+  .faq { max-width: 820px; margin: 36px auto 0; }
+  details { border-bottom: 1px solid var(--stroke); padding: 18px 0; }
+  summary { cursor: pointer; font-weight: 600; font-size: 17px; list-style: none; display: flex; justify-content: space-between; gap: 16px; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "+"; color: var(--muted); font-weight: 400; font-size: 22px; line-height: 1; transition: transform .2s; }
+  details[open] summary::after { transform: rotate(45deg); }
+  details p { color: var(--muted); margin: 12px 0 0; }
+  code { font: 13.5px ui-monospace, "SF Mono", Menlo, monospace; background: rgba(255,255,255,.06); padding: 2px 6px; border-radius: 6px; }
+
+  footer { border-top: 1px solid var(--stroke); padding: 36px 0 48px; color: var(--faint); font-size: 14px; }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; align-items: center; }
+  footer a { color: var(--muted); text-decoration: none; }
+  footer a:hover { color: var(--text); }
+
+  /* Only hide for the fade-in when JS is running; content is always visible without it. */
+  .js .reveal { opacity: 0; transform: translateY(16px); transition: opacity .7s ease, transform .7s ease; }
+  .js .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) { .js .reveal { opacity: 1; transform: none; transition: none; } html { scroll-behavior: auto; } }
+
+  @media (max-width: 920px) {
+    .hero .grid, .show { grid-template-columns: 1fr; }
+    .show .shot { max-width: 340px; margin: 0 auto; }
+    .features { grid-template-columns: 1fr 1fr; }
+    .stats { grid-template-columns: 1fr 1fr; }
+    nav .links a:not(.btn) { display: none; }
+  }
+  @media (max-width: 600px) {
+    .wrap { padding: 0 16px; }
+    .hero { padding-top: 56px; }
+    .features, .steps { grid-template-columns: 1fr; }
+    .hang { left: 50%; transform: translateX(-50%); width: 78%; }
+    .menubar .opt { display: none; }
+    section { padding: 72px 0; }
+    .stats b { font-size: 21px; }
+    .stats div { padding: 18px; }
+  }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset=".5" stop-color="#3b82f6"/><stop offset="1" stop-color="#e11d48"/></linearGradient></defs>
+</svg>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="#"><img src="img/icon.png" alt="">XDRStat</a>
+    <div class="links">
+      <a href="#panels">Panels</a>
+      <a href="#features">Features</a>
+      <a href="#faq">FAQ</a>
+      <a href="https://github.com/karimbacchus/xdrstat">GitHub</a>
+      <a class="btn btn-primary btn-small dl-link" href="https://github.com/karimbacchus/xdrstat/releases/latest/download/XDRStat.dmg">Download</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="grid">
+      <div>
+        <span class="eyebrow"><b>NEW</b> Built for M5 Pro &amp; M5 Max MacBook Pro</span>
+        <h1>Every sensor on your Mac, <span class="g">in the menu bar.</span></h1>
+        <p class="lede">XDRStat shows CPU and GPU load per cluster, memory pressure, network traffic and more than 270 temperature, fan and power sensors — the ones other monitors don't know about yet on the 2026 MacBook Pro.</p>
+        <div class="cta">
+          <a class="btn btn-primary dl-link" href="https://github.com/karimbacchus/xdrstat/releases/latest/download/XDRStat.dmg">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-5-5m5 5l5-5M4 21h16"/></svg>
+            Download for Mac
+          </a>
+          <a class="btn btn-ghost" href="#panels">See the panels</a>
+        </div>
+        <div class="fine">
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12l5 5L20 7"/></svg>Free</span>
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12l5 5L20 7"/></svg>Signed &amp; notarized by Apple</span>
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12l5 5L20 7"/></svg>macOS 15 or later</span>
+          <span class="dl-version"></span>
+        </div>
+      </div>
+      <div class="desk reveal" aria-label="XDRStat CPU panel open below the menu bar">
+        <div class="menubar">
+          <span class="item active"><img src="img/label-cpu.png" alt="CPU menu bar item"></span>
+          <span class="item opt"><img src="img/label-memory.png" alt="Memory menu bar item"></span>
+          <span class="item opt"><img src="img/label-network.png" alt="Network menu bar item"></span>
+          <span class="item"><img src="img/label-sensors.png" alt="Sensors menu bar item"></span>
+          <span class="clock">Mon 9:41</span>
+        </div>
+        <img class="hang" src="img/panel-cpu.png" alt="XDRStat CPU panel: usage history, per-core rings, top processes, clusters and GPU">
+      </div>
+    </div>
+
+    <div class="stats reveal">
+      <div><b>270+</b><span>temperature sensors, named</span></div>
+      <div><b>18 cores</b><span>Super &amp; Performance, per cluster</span></div>
+      <div><b>Per-cluster</b><span>frequency and power, live</span></div>
+      <div><b>~1–2%</b><span>CPU, with flat memory use</span></div>
+    </div>
+  </div>
+</header>
+
+<section id="panels">
+  <div class="wrap">
+    <div class="kicker">Four panels</div>
+    <h2>One click from anything you want to know.</h2>
+    <p class="sub">Each menu bar item opens a detailed panel. Turn on just the ones you want; they update every second and cost almost nothing while closed.</p>
+
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" aria-selected="true" data-panel="cpu">CPU &amp; GPU</button>
+      <button class="tab" role="tab" aria-selected="false" data-panel="memory">Memory</button>
+      <button class="tab" role="tab" aria-selected="false" data-panel="network">Network</button>
+      <button class="tab" role="tab" aria-selected="false" data-panel="sensors">Sensors</button>
+    </div>
+
+    <div class="panel-view show" data-panel="cpu">
+      <img class="shot" src="img/panel-cpu.png" alt="CPU and GPU panel" loading="lazy">
+      <div class="copy">
+        <div class="kicker">CPU &amp; GPU</div>
+        <h3>See all three clusters work.</h3>
+        <p>The M5 splits its CPU into a Super cluster and two Performance clusters. XDRStat shows each one separately, straight from the chip's own counters.</p>
+        <ul>
+          <li><i></i><span>User and system history, plus a ring for every one of the 18 cores</span></li>
+          <li><i></i><span>Live frequency and power for each cluster, from Apple's IOReport counters</span></li>
+          <li><i></i><span>GPU load, frequency, temperature, power and memory</span></li>
+          <li><i></i><span>SoC power breakdown: CPU, GPU, DRAM, display, fabric, Neural Engine</span></li>
+          <li><i></i><span>Top processes, grouped by app with their real icons</span></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="panel-view show" data-panel="memory" hidden>
+      <img class="shot" src="img/panel-memory.png" alt="Memory panel" loading="lazy">
+      <div class="copy">
+        <div class="kicker">Memory</div>
+        <h3>Pressure first, like macOS does.</h3>
+        <p>Memory pressure tells you when your Mac is actually short on RAM. XDRStat puts it front and center, next to the same breakdown Activity Monitor uses.</p>
+        <ul>
+          <li><i></i><span>Pressure and usage rings, with App, Wired, Compressed, Cached and Free</span></li>
+          <li><i></i><span>Apps ranked by real memory footprint — Chrome counts all its helpers</span></li>
+          <li><i></i><span>Web content processes charged to the app that owns them</span></li>
+          <li><i></i><span>Page-ins, page-outs, compression ratio and swap</span></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="panel-view show" data-panel="network" hidden>
+      <img class="shot" src="img/panel-network.png" alt="Network panel" loading="lazy">
+      <div class="copy">
+        <div class="kicker">Network</div>
+        <h3>Traffic, Wi‑Fi and every address.</h3>
+        <p>Upload and download history at a glance, plus the details you usually dig through System Settings for.</p>
+        <ul>
+          <li><i></i><span>Upload above, download below, with live rates and peaks</span></li>
+          <li><i></i><span>Wi‑Fi signal, noise, channel, PHY mode (Wi‑Fi 7 included) and security</span></li>
+          <li><i></i><span>IPv4 and IPv6 for every interface, router and DNS — click to copy</span></li>
+          <li><i></i><span>Optional public IP lookup (off by default)</span></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="panel-view show" data-panel="sensors" hidden>
+      <img class="shot" src="img/panel-sensors.png" alt="Sensors panel" loading="lazy">
+      <div class="copy">
+        <div class="kicker">Sensors</div>
+        <h3>The whole thermal picture.</h3>
+        <p>XDRStat reads the Mac's SMC directly and names what it finds: CPU and GPU dies, memory, SSD, battery, display, power delivery and the enclosure.</p>
+        <ul>
+          <li><i></i><span>270+ temperatures, grouped and searchable, with averages and hottest spots</span></li>
+          <li><i></i><span>Both fans, from idle (off) to max</span></li>
+          <li><i></i><span>Battery health, cycles, temperature and power in or out</span></li>
+          <li><i></i><span>System power and ~200 power, voltage and current rails</span></li>
+          <li><i></i><span>Pin any sensor to the menu bar</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="features" style="padding-top:0">
+  <div class="wrap">
+    <div class="kicker">Details</div>
+    <h2>Made to stay out of the way.</h2>
+    <div class="features">
+      <div class="feature reveal">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg></div>
+        <h4>Light on resources</h4>
+        <p>Detailed sampling only runs while a panel is open. Idle cost is around 1–2% of one core.</p>
+      </div>
+      <div class="feature reveal">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg></div>
+        <h4>Private by design</h4>
+        <p>No accounts, no analytics, no network calls — except an optional public IP lookup you turn on yourself.</p>
+      </div>
+      <div class="feature reveal">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 4v6c0 5-3.5 9-8 10-4.5-1-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg></div>
+        <h4>Signed and notarized</h4>
+        <p>Signed with a Developer ID and notarized by Apple, so it opens without Gatekeeper warnings.</p>
+      </div>
+      <div class="feature reveal">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 22h8M12 18v4"/></svg></div>
+        <h4>Feels native</h4>
+        <p>Light and dark menu bars, menu-style vibrancy, Escape to close, and no Dock icon.</p>
+      </div>
+      <div class="feature reveal">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 01-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 010-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 014 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 010 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg></div>
+        <h4>Your menu bar, your way</h4>
+        <p>Graph, text or compact styles, °C or °F, update interval from half a second to five, and launch at login.</p>
+      </div>
+      <div class="feature reveal">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg></div>
+        <h4>Open source</h4>
+        <p>Every line is on GitHub — read how each number is measured, or build it yourself with just the Command Line Tools.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="download" style="padding-top:0">
+  <div class="wrap">
+    <div class="download reveal">
+      <img class="icon" src="img/icon.png" alt="XDRStat app icon">
+      <h2>Get XDRStat</h2>
+      <p class="sub" style="margin:0 auto 28px">Free for M5 Pro and M5 Max MacBook Pro.</p>
+      <a class="btn btn-primary dl-link" href="https://github.com/karimbacchus/xdrstat/releases/latest/download/XDRStat.dmg">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-5-5m5 5l5-5M4 21h16"/></svg>
+        Download XDRStat
+      </a>
+      <div class="meta"><span class="dl-meta">Signed &amp; notarized · Apple Silicon · macOS 15+</span> · <a href="https://github.com/karimbacchus/xdrstat/releases">All releases</a></div>
+      <div class="steps">
+        <div><b>1. Open the disk image</b>Double-click <code>XDRStat.dmg</code> once it downloads.</div>
+        <div><b>2. Drag to Applications</b>Drop XDRStat onto the Applications shortcut.</div>
+        <div><b>3. Launch it</b>Its items appear in your menu bar. Use the gear in any panel for settings.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="faq" style="padding-top:0">
+  <div class="wrap">
+    <div class="kicker" style="text-align:center">FAQ</div>
+    <h2 style="text-align:center">Questions</h2>
+    <div class="faq">
+      <details>
+        <summary>Which Macs does it support?</summary>
+        <p>XDRStat is built and tested for the 2026 MacBook Pro with M5 Pro or M5 Max. Memory, network, GPU and battery work on any Apple Silicon Mac, but core labels, per-cluster frequency/power and sensor names are tuned to the M5 Pro/Max and may be incomplete elsewhere. Intel Macs aren't supported.</p>
+      </details>
+      <details>
+        <summary>Why isn't it on the Mac App Store?</summary>
+        <p>Reading temperatures, fans and per-cluster power means talking to the Mac's System Management Controller and Apple's performance counters. App Store apps must run in a sandbox that doesn't allow that — which is why monitors like this are distributed directly. XDRStat is still signed with a Developer ID and notarized by Apple.</p>
+      </details>
+      <details>
+        <summary>Does it need admin rights or a helper tool?</summary>
+        <p>No. Everything it shows is readable by a normal user process. There's no privileged helper, kernel extension or password prompt.</p>
+      </details>
+      <details>
+        <summary>Why does it ask for Location access?</summary>
+        <p>It only asks if you click "Show network name" in the Network panel. macOS hides the Wi‑Fi network name from apps without Location access. XDRStat never reads your location.</p>
+      </details>
+      <details>
+        <summary>Does it send any data anywhere?</summary>
+        <p>No analytics, no telemetry. The only network request is the optional public IP lookup (to <code>api.ipify.org</code>), which is off until you enable it in Settings.</p>
+      </details>
+      <details>
+        <summary>How do I uninstall it?</summary>
+        <p>Turn off "Launch at login" in Settings, quit it with the power button in any panel, and drag XDRStat from Applications to the Trash.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <a class="brand" href="#"><img src="img/icon.png" alt="">XDRStat</a>
+    <div>
+      <a href="https://github.com/karimbacchus/xdrstat">GitHub</a> ·
+      <a href="https://github.com/karimbacchus/xdrstat/releases">Releases</a> ·
+      <a href="https://github.com/karimbacchus/xdrstat/issues">Report an issue</a>
+    </div>
+    <div>© 2026 Karim Bacchus. Not affiliated with Apple.</div>
+  </div>
+</footer>
+
+<script>
+  // Panel tabs
+  const tabs = document.querySelectorAll('.tab');
+  tabs.forEach(t => t.addEventListener('click', () => {
+    tabs.forEach(x => x.setAttribute('aria-selected', x === t));
+    document.querySelectorAll('.panel-view').forEach(v => v.hidden = v.dataset.panel !== t.dataset.panel);
+  }));
+
+  // Reveal on scroll
+  const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } }), { threshold: .12 });
+  document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+  setTimeout(() => document.querySelectorAll('.reveal').forEach(el => el.classList.add('in')), 1500);
+
+  // Latest release details (version, size, date) from GitHub; the static link works without this.
+  fetch('https://api.github.com/repos/karimbacchus/xdrstat/releases/latest')
+    .then(r => r.ok ? r.json() : null)
+    .then(rel => {
+      if (!rel) return;
+      const asset = (rel.assets || []).find(a => a.name === 'XDRStat.dmg');
+      const v = (rel.tag_name || '').replace(/^v/, '');
+      const date = new Date(rel.published_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+      if (v) document.querySelector('.dl-version').textContent = 'Version ' + v;
+      const size = asset ? ' · ' + (asset.size / 1e6).toFixed(1) + ' MB' : '';
+      document.querySelector('.dl-meta').textContent = `Version ${v}${size} · ${date} · Signed & notarized · macOS 15+`;
+    })
+    .catch(() => {});
+</script>
+</body>
+</html>

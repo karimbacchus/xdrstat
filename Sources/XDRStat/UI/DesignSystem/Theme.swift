@@ -79,3 +79,6 @@ struct MonitorState {
 // The CommandLineTools toolchain lacks the SwiftUIMacros plugin, so `@State` (a macro in the
 // macOS 27 SDK) can't be expanded. A typealias resolves to the plain property wrapper instead.
 typealias LocalState<T> = SwiftUI.State<T>
+
+/// Site screenshots: draw real app icons even in snapshot renders (set by SnapshotRunner.marketing).
+@MainActor enum SnapshotOptions { static var realIcons = false }
