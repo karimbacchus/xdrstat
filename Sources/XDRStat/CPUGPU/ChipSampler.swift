@@ -110,7 +110,8 @@ final class ChipSampler {
             let st = cpuStates[stateChannelName(e)]
             let table = st.flatMap { cpuTable(for: $0) }
             var core = CoreSample(id: l, kind: e.kind, cluster: e.cluster,
-                                  user: u?[l].user ?? 0, system: u?[l].system ?? 0,
+                                  user: (u.map { l < $0.count ? $0[l].user : 0 }) ?? 0,
+                                  system: (u.map { l < $0.count ? $0[l].system : 0 }) ?? 0,
                                   frequencyMHz: nil, powerW: watts[energyChannelName(e)])
             if let st, let a = FrequencyMath.cpuActive(st, table: table) {
                 core.frequencyMHz = a.mhz

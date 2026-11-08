@@ -46,12 +46,15 @@ final class SensorsSampler {
         // --- Temperatures
         var byGroup = [[Sensor]](repeating: [], count: groups.count)
         var cpu: [Double] = [], gpu: [Double] = [], mem: [Double] = []
+        // Headline GPU temp uses only the dies read on every tick, so its graph doesn't step when the
+        // Sensors panel opens (detailed mode reads all dies; the summaries below still use all of them).
+        var gpuHeadline: [Double] = []
         var batteryTemps: [Double] = []
         for d in tables.temps where detailed || d.essential {
             guard let v = smc.readValue(d.key), SensorCatalog.validTemp(v) else { continue }
             switch d.role {
             case .cpuDie: cpu.append(v)
-            case .gpuDie: gpu.append(v)
+            case .gpuDie: gpu.append(v); if d.essential { gpuHeadline.append(v) }
             case .memDie: mem.append(v)
             case .plain: break
             }
@@ -74,13 +77,14 @@ final class SensorsSampler {
         // Averaging avoids a single spiky die dominating the menu bar; the hottest die is
         // available as the "cpu.max" sensor.
         if !cpu.isEmpty { snap.cpuTemperature = cpu.reduce(0, +) / Double(cpu.count) }
-        if !gpu.isEmpty { snap.gpuTemperature = gpu.reduce(0, +) / Double(gpu.count) }
+        if !gpuHeadline.isEmpty { snap.gpuTemperature = gpuHeadline.reduce(0, +) / Double(gpuHeadline.count) }
 
         // Battery temperature fallback (registry exposes none on this machine).
-        if snap.battery.temperatureC == nil, !batteryTemps.isEmpty {
-            snap.battery.temperatureC = batteryTemps.reduce(0, +) / Double(batteryTemps.count)
-        } else if snap.battery.temperatureC == nil, let v = smc.readValue("TB0T"), SensorCatalog.validTemp(v) {
+        // Same sensor in both modes (TB0T), so the value doesn't shift when the panel opens.
+        if snap.battery.temperatureC == nil, let v = smc.readValue("TB0T"), SensorCatalog.validTemp(v) {
             snap.battery.temperatureC = v
+        } else if snap.battery.temperatureC == nil, !batteryTemps.isEmpty {
+            snap.battery.temperatureC = batteryTemps.reduce(0, +) / Double(batteryTemps.count)
         }
 
         // --- Fans

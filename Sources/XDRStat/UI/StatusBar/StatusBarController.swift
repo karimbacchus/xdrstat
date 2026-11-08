@@ -106,20 +106,23 @@ final class StatusBarController: NSObject {
     }
 
     private func labelKey(_ k: Kind, _ st: MonitorState) -> String {
+        // Int(NaN/inf) traps, so quantize defensively.
+        func q(_ x: Double, _ scale: Double) -> Int { let v = (x * scale).rounded(); return v.isFinite ? Int(v) : 0 }
         let style = "\(st.style)"
         switch k {
         case .cpu:
-            return style + "|\(Int((st.chip.cpu.usage * 100).rounded()))|"
-                + st.chip.cpu.clusters.map { "\(Int($0.usage * 14))" }.joined(separator: ",")
+            return style + "|\(q(st.chip.cpu.usage, 100))|"
+                + st.chip.cpu.clusters.map { "\(q($0.usage, 14))" }.joined(separator: ",")
         case .memory:
-            return style + "|\(Int((st.memory.usedFraction * 100).rounded()))|\(Int(st.memory.pressure * 14))"
+            return style + "|\(q(st.memory.usedFraction, 100))|\(q(st.memory.pressure, 14))"
         case .network:
             var key = style + "|" + Fmt.rate(st.network.upBytesPerSec) + "|" + Fmt.rate(st.network.downBytesPerSec)
-            if st.style == .graph { key += "|\(st.netDownHistory.values.count)" }   // graph scrolls every tick
+            // The mini graph scrolls every sample (history count saturates at capacity, so use the counter).
+            if st.style == .graph { key += "|\(monitor.sampleCount)" }
             return key
         case .sensors:
             var key = style + "|" + SensorsMenuLabelContent.values(st).joined(separator: ",")
-            if st.style == .graph { key += "|\(st.cpuTempHistory.values.count)|\(Int((st.cpuTempHistory.last ?? 0) * 2))" }
+            if st.style == .graph { key += "|\(monitor.sampleCount)" }
             return key
         }
     }
@@ -166,6 +169,13 @@ final class StatusBarController: NSObject {
         // Close on any click outside our app (other apps, desktop, menu bar)...
         if let m = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown], handler: { [weak self] _ in
             self?.closePanel()
+        }) { eventMonitors.append(m) }
+        // ...on clicks in this app's other windows (e.g. Settings), but not on our status items,
+        // whose own action toggles the panel...
+        if let m = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown], handler: { [weak self] e in
+            guard let self, let w = e.window else { return e }
+            if w !== self.panel, !w.className.contains("StatusBar") { self.closePanel() }
+            return e
         }) { eventMonitors.append(m) }
         // ...and on Escape.
         if let m = NSEvent.addLocalMonitorForEvents(matching: [.keyDown], handler: { [weak self] e in

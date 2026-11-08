@@ -26,14 +26,17 @@ final class AppGrouper {
             }
         }
         let sorted = groups.values.map(\.usage).sorted {
-            byCPU ? $0.cpuPercent > $1.cpuPercent : $0.memoryBytes > $1.memoryBytes
+            let a = byCPU ? $0.cpuPercent : Double($0.memoryBytes)
+            let b = byCPU ? $1.cpuPercent : Double($1.memoryBytes)
+            return a != b ? a > b : $0.name < $1.name   // stable order for ties, so rows don't flicker
         }
         return Array(sorted.prefix(limit))
     }
 
-    /// Drop cached owners for pids that no longer exist.
+    /// Drop cached owners for pids that no longer exist (every call, so a recycled pid never
+    /// inherits a dead process's app).
     func prune(live: Set<Int32>) {
-        if cache.count > live.count + 64 { cache = cache.filter { live.contains($0.key) } }
+        cache = cache.filter { live.contains($0.key) }
     }
 
     /// `responsibility_get_pid_responsible_for_pid` (libSystem, undocumented) — looked up once via dlsym.
@@ -55,7 +58,8 @@ final class AppGrouper {
     private func owner(_ pid: Int32, fallback: String) -> Owner {
         if let o = cache[pid] { return o }
         var o = Owner(key: "pid:\(pid)", name: fallback, appPath: nil)
-        guard var path = Self.path(of: pid) else { cache[pid] = o; return o }
+        // Don't cache a failed lookup (e.g. a process caught mid-spawn); try again next time.
+        guard var path = Self.path(of: pid) else { return o }
         // XPC services (e.g. com.apple.WebKit.WebContent) run on behalf of an app; like Activity Monitor,
         // charge them to their "responsible" app. Only for .xpc bundles: CLI tools would otherwise be
         // charged to the terminal that launched them.

@@ -271,14 +271,14 @@
     <h2>One click from anything you want to know.</h2>
     <p class="sub">Each menu bar item opens a detailed panel. Turn on just the ones you want; they update every second and cost almost nothing while closed.</p>
 
-    <div class="tabs" role="tablist">
-      <button class="tab" role="tab" aria-selected="true" data-panel="cpu">CPU &amp; GPU</button>
-      <button class="tab" role="tab" aria-selected="false" data-panel="memory">Memory</button>
-      <button class="tab" role="tab" aria-selected="false" data-panel="network">Network</button>
-      <button class="tab" role="tab" aria-selected="false" data-panel="sensors">Sensors</button>
+    <div class="tabs" role="tablist" aria-label="App panels">
+      <button class="tab" role="tab" id="tab-cpu" aria-controls="panel-cpu" aria-selected="true" tabindex="0" data-panel="cpu">CPU &amp; GPU</button>
+      <button class="tab" role="tab" id="tab-memory" aria-controls="panel-memory" aria-selected="false" tabindex="-1" data-panel="memory">Memory</button>
+      <button class="tab" role="tab" id="tab-network" aria-controls="panel-network" aria-selected="false" tabindex="-1" data-panel="network">Network</button>
+      <button class="tab" role="tab" id="tab-sensors" aria-controls="panel-sensors" aria-selected="false" tabindex="-1" data-panel="sensors">Sensors</button>
     </div>
 
-    <div class="panel-view show" data-panel="cpu">
+    <div class="panel-view show" role="tabpanel" id="panel-cpu" aria-labelledby="tab-cpu" data-panel="cpu">
       <img class="shot" src="img/panel-cpu.png" alt="CPU and GPU panel" loading="lazy">
       <div class="copy">
         <div class="kicker">CPU &amp; GPU</div>
@@ -294,7 +294,7 @@
       </div>
     </div>
 
-    <div class="panel-view show" data-panel="memory" hidden>
+    <div class="panel-view show" role="tabpanel" id="panel-memory" aria-labelledby="tab-memory" data-panel="memory" hidden>
       <img class="shot" src="img/panel-memory.png" alt="Memory panel" loading="lazy">
       <div class="copy">
         <div class="kicker">Memory</div>
@@ -309,7 +309,7 @@
       </div>
     </div>
 
-    <div class="panel-view show" data-panel="network" hidden>
+    <div class="panel-view show" role="tabpanel" id="panel-network" aria-labelledby="tab-network" data-panel="network" hidden>
       <img class="shot" src="img/panel-network.png" alt="Network panel" loading="lazy">
       <div class="copy">
         <div class="kicker">Network</div>
@@ -324,7 +324,7 @@
       </div>
     </div>
 
-    <div class="panel-view show" data-panel="sensors" hidden>
+    <div class="panel-view show" role="tabpanel" id="panel-sensors" aria-labelledby="tab-sensors" data-panel="sensors" hidden>
       <img class="shot" src="img/panel-sensors.png" alt="Sensors panel" loading="lazy">
       <div class="copy">
         <div class="kicker">Sensors</div>
@@ -452,11 +452,21 @@
 
 <script>
   // Panel tabs
-  const tabs = document.querySelectorAll('.tab');
-  tabs.forEach(t => t.addEventListener('click', () => {
-    tabs.forEach(x => x.setAttribute('aria-selected', x === t));
+  const tabs = [...document.querySelectorAll('.tab')];
+  function select(t, focus) {
+    tabs.forEach(x => { const on = x === t; x.setAttribute('aria-selected', on); x.tabIndex = on ? 0 : -1; });
     document.querySelectorAll('.panel-view').forEach(v => v.hidden = v.dataset.panel !== t.dataset.panel);
-  }));
+    if (focus) t.focus();
+  }
+  tabs.forEach((t, i) => {
+    t.addEventListener('click', () => select(t, false));
+    t.addEventListener('keydown', e => {
+      const n = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+      if (n === undefined) return;
+      e.preventDefault();
+      select(tabs[(n + tabs.length) % tabs.length], true);
+    });
+  });
 
   // Reveal on scroll
   const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } }), { threshold: .12 });

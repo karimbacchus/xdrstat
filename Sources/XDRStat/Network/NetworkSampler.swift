@@ -114,10 +114,19 @@ final class NetworkSampler {
 
     private func readCounters() -> [RawCounters] {
         var mib: [Int32] = [CTL_NET, PF_ROUTE, 0, 0, NET_RT_IFLIST2, 0]
+        // The table can grow between the size query and the read (VPN up, USB Ethernet plugged in),
+        // which fails with ENOMEM; allocate headroom and retry a couple of times.
         var len = 0
-        guard sysctl(&mib, UInt32(mib.count), nil, &len, nil, 0) == 0, len > 0 else { return [] }
-        var buf = [UInt8](repeating: 0, count: len)
-        guard sysctl(&mib, UInt32(mib.count), &buf, &len, nil, 0) == 0 else { return [] }
+        var buf: [UInt8] = []
+        var ok = false
+        for _ in 0..<3 {
+            guard sysctl(&mib, UInt32(mib.count), nil, &len, nil, 0) == 0, len > 0 else { return [] }
+            len += len / 8 + 512
+            buf = [UInt8](repeating: 0, count: len)
+            if sysctl(&mib, UInt32(mib.count), &buf, &len, nil, 0) == 0 { ok = true; break }
+            if errno != ENOMEM { return [] }
+        }
+        guard ok else { return [] }
         var out: [RawCounters] = []
         buf.withUnsafeBytes { raw in
             var off = 0
@@ -276,6 +285,7 @@ final class PublicIPFetcher: @unchecked Sendable {
         lock.lock()
         let changed = primary != lastPrimary
         lastPrimary = primary
+        if changed { value = nil }   // a different network has a different public IP; don't show the old one
         let due = changed || Date().timeIntervalSince(lastFetch) > 300
         let start = due && !inFlight && primary != nil
         if start { inFlight = true; lastFetch = Date() }
@@ -293,7 +303,12 @@ final class PublicIPFetcher: @unchecked Sendable {
             guard let self else { return }
             let s = data.flatMap { String(data: $0, encoding: .utf8) }?.trimmingCharacters(in: .whitespacesAndNewlines)
             self.lock.lock()
-            if let s, !s.isEmpty, s.count < 46, s.allSatisfy({ $0.isHexDigit || $0 == "." || $0 == ":" }) { self.value = s }
+            if let s, !s.isEmpty, s.count < 46, s.allSatisfy({ $0.isHexDigit || $0 == "." || $0 == ":" }) {
+                self.value = s
+            } else {
+                // Offline / captive portal: retry in ~30 s rather than waiting the full 5 minutes.
+                self.lastFetch = Date().addingTimeInterval(-270)
+            }
             self.inFlight = false
             self.lock.unlock()
         }.resume()

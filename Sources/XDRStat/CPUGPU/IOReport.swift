@@ -55,7 +55,9 @@ final class IOReportSession {
         subbed = o.takeRetainedValue()   // Create rule: we own it; kept for the lifetime of the session
     }
 
-    private func now() -> UInt64 { mach_continuous_time() }
+    // Absolute (not continuous) time: it pauses during sleep like the energy counters, so the first
+    // sample after wake isn't divided by hours of sleep.
+    private func now() -> UInt64 { mach_absolute_time() }
 
     /// Takes a sample and returns the delta since the previous call (nil on the first call).
     func sampleDelta() -> IORDelta? {

@@ -43,6 +43,9 @@ final class SystemMonitor: ObservableObject {
     @Published private(set) var cpuTempHistory = History()      // °C
     @Published private(set) var gpuTempHistory = History()      // °C
     @Published private(set) var systemPowerHistory = History()  // W
+    /// Increments once per published sample; graph-style menu bar labels key on it so they keep
+    /// scrolling after the histories reach capacity.
+    @Published private(set) var sampleCount = 0
 
     /// Set by panels on appear/disappear.
     var detail = DetailFlags() { didSet { queue.async { [d = detail] in self.detailBox = d } } }
@@ -62,10 +65,18 @@ final class SystemMonitor: ObservableObject {
         start(interval: AppSettings.shared.updateInterval)
     }
 
+    private var currentInterval: TimeInterval?
+
     func start(interval: TimeInterval) {
+        let iv = interval.isFinite ? max(0.25, interval) : 1
+        // The Settings slider calls this on every step; only rebuild the timer when the value changes,
+        // and don't fire an extra immediate sample on a restart.
+        if iv == currentInterval, timer != nil { return }
+        let first = currentInterval == nil
+        currentInterval = iv
         timer?.cancel()
         let t = DispatchSource.makeTimerSource(queue: queue)
-        t.schedule(deadline: .now(), repeating: max(0.25, interval), leeway: .milliseconds(50))
+        t.schedule(deadline: first ? .now() : .now() + iv, repeating: iv, leeway: .milliseconds(50))
         t.setEventHandler { [weak self] in self?.sampleOnQueue() }
         timer = t
         t.resume()
@@ -87,6 +98,7 @@ final class SystemMonitor: ObservableObject {
         self.chip = chip
         self.memory = memory
         self.network = network
+        sampleCount &+= 1
         cpuHistory.append(chip.cpu.usage)
         cpuUserHistory.append(chip.cpu.user)
         cpuSystemHistory.append(chip.cpu.system)

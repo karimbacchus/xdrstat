@@ -1,0 +1,17 @@
+$ORIGIN xdrstat.com.
+$TTL 3600
+
+; GitHub Pages: apex (IPv4)
+@     3600  IN  A     185.199.108.153 ; cf_tags=cf-proxied:false
+@     3600  IN  A     185.199.109.153 ; cf_tags=cf-proxied:false
+@     3600  IN  A     185.199.110.153 ; cf_tags=cf-proxied:false
+@     3600  IN  A     185.199.111.153 ; cf_tags=cf-proxied:false
+
+; GitHub Pages: apex (IPv6)
+@     3600  IN  AAAA  2606:50c0:8000::153 ; cf_tags=cf-proxied:false
+@     3600  IN  AAAA  2606:50c0:8001::153 ; cf_tags=cf-proxied:false
+@     3600  IN  AAAA  2606:50c0:8002::153 ; cf_tags=cf-proxied:false
+@     3600  IN  AAAA  2606:50c0:8003::153 ; cf_tags=cf-proxied:false
+
+; www -> GitHub Pages (GitHub redirects it to the apex)
+www   3600  IN  CNAME karimbacchus.github.io. ; cf_tags=cf-proxied:false

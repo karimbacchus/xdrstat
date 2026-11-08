@@ -127,7 +127,7 @@ final class MemorySampler {
         }
         let out = grouper.group(named, limit: limit, byCPU: false)
         grouper.prune(live: live)
-        if nameCache.count > 600 { nameCache = nameCache.filter { live.contains($0.key) } }
+        nameCache = nameCache.filter { live.contains($0.key) }   // every call: recycled pids get fresh names
         return out
     }
 }

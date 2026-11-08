@@ -6,7 +6,7 @@ final class ProcessSampler {
     private let grouper = AppGrouper()
     private struct State { var cpuNs: UInt64; var start: UInt64 }
     private var state: [Int32: State] = [:]
-    private var lastScan: UInt64 = 0          // mach_continuous_time ns
+    private var lastScan: UInt64 = 0          // mach_absolute_time ns (pauses during sleep, like the counters)
     private var names: [Int32: String] = [:]
     private let tb: mach_timebase_info_data_t = { var t = mach_timebase_info_data_t(); mach_timebase_info(&t); return t }()
     private var pidBuf = [pid_t](repeating: 0, count: 2048)
@@ -29,7 +29,7 @@ final class ProcessSampler {
     func sample(detailed: Bool) -> (processes: Int, threads: Int, top: [ProcessUsage]) {
         guard detailed else { return (processCount(), 0, []) }
         let pids = listPids()
-        let nowNs = toNs(mach_continuous_time())
+        let nowNs = toNs(mach_absolute_time())
         let elapsedNs = lastScan == 0 ? 0 : Double(nowNs &- lastScan)
         var newState: [Int32: State] = [:]
         newState.reserveCapacity(pids.count)

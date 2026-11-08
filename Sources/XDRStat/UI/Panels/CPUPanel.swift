@@ -149,6 +149,9 @@ struct CPUPanelContent: View {
                 GaugeRing(fraction: gpu.maxFrequencyMHz.map { ($0 > 0 ? (gpu.frequencyMHz ?? 0) / $0 : 0) } ?? 0, color: Theme.accent,
                           value: ghz.map { String(format: "%.2f", $0) } ?? "—", unit: "", caption: "GHZ")
             }
+            // Explicit height: aspect-ratio rings alone collapse when a host asks for the minimum fitting size.
+            .frame(maxWidth: .infinity)
+            .frame(height: 62)
             VStack(spacing: 3) {
                 LegendRow(color: nil, name: "Renderer", value: ValueLabel(value: String(format: "%.0f", gpu.rendererUtilization * 100), unit: "%"))
                 LegendRow(color: nil, name: "Tiler", value: ValueLabel(value: String(format: "%.0f", gpu.tilerUtilization * 100), unit: "%"))
