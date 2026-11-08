@@ -1,0 +1,6 @@
+# SwiftPM build dirs (one per agent/config) and the app bundle output
+.build*/
+build/
+.swiftpm/
+# macOS
+.DS_Store
