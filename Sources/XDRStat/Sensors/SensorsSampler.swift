@@ -25,9 +25,13 @@ final class SensorsSampler {
         }
     }
 
-    func sample(detailed: Bool) -> SensorsSnapshot {
+    /// `detailed`: the Sensors panel is open, read everything. Otherwise only what the menu bar needs:
+    /// the headline dies, System Total, and any `pinned` sensor IDs.
+    func sample(detailed: Bool, pinned: Set<String> = []) -> SensorsSnapshot {
         var snap = SensorsSnapshot()
-        let bat = battery.read()
+        // The battery card and the battery/adapter power rows only show in the panel, or when pinned.
+        let wantBattery = detailed || pinned.contains("battery.power") || pinned.contains("adapter.power")
+        let bat = wantBattery ? battery.read() : BatteryReader.Result()
         snap.battery = bat.battery
 
         guard let smc else {
@@ -50,8 +54,12 @@ final class SensorsSampler {
         // Sensors panel opens (detailed mode reads all dies; the summaries below still use all of them).
         var gpuHeadline: [Double] = []
         var batteryTemps: [Double] = []
-        for d in tables.temps where detailed || d.essential {
-            guard let v = smc.readValue(d.key), SensorCatalog.validTemp(v) else { continue }
+        // A pinned group summary ("GPU Hottest", "Memory Average") needs every die of that group.
+        let allGPU = detailed || pinned.contains("gpu.avg") || pinned.contains("gpu.max")
+        let allMem = detailed || pinned.contains("memory.avg") || pinned.contains("memory.max")
+        for d in tables.temps {
+            let wanted = d.essential || pinned.contains(d.id) || (d.role == .gpuDie ? allGPU : d.role == .memDie ? allMem : detailed)
+            guard wanted, let v = smc.readValue(d.key), SensorCatalog.validTemp(v) else { continue }
             switch d.role {
             case .cpuDie: cpu.append(v)
             case .gpuDie: gpu.append(v); if d.essential { gpuHeadline.append(v) }
@@ -80,15 +88,16 @@ final class SensorsSampler {
         if !gpuHeadline.isEmpty { snap.gpuTemperature = gpuHeadline.reduce(0, +) / Double(gpuHeadline.count) }
 
         // Battery temperature fallback (registry exposes none on this machine).
-        // Same sensor in both modes (TB0T), so the value doesn't shift when the panel opens.
-        if snap.battery.temperatureC == nil, let v = smc.readValue("TB0T"), SensorCatalog.validTemp(v) {
-            snap.battery.temperatureC = v
-        } else if snap.battery.temperatureC == nil, !batteryTemps.isEmpty {
-            snap.battery.temperatureC = batteryTemps.reduce(0, +) / Double(batteryTemps.count)
+        if wantBattery, snap.battery.temperatureC == nil {
+            if let v = smc.readValue("TB0T"), SensorCatalog.validTemp(v) {
+                snap.battery.temperatureC = v
+            } else if !batteryTemps.isEmpty {
+                snap.battery.temperatureC = batteryTemps.reduce(0, +) / Double(batteryTemps.count)
+            }
         }
 
-        // --- Fans
-        for f in tables.fans {
+        // --- Fans (only the panel shows them)
+        for f in tables.fans where detailed {
             guard let ac = smc.readValue(f.ac), ac.isFinite, ac >= 0 else { continue }
             let mn = smc.readValue(f.mn) ?? 0
             let mx = smc.readValue(f.mx) ?? max(ac, mn)
@@ -97,17 +106,17 @@ final class SensorsSampler {
         }
 
         // --- Power / voltage / current
-        for d in tables.power where detailed || d.essential {
+        for d in tables.power where detailed || d.essential || pinned.contains(d.id) {
             guard let v = smc.readValue(d.key), SensorCatalog.validValue(v, unit: .watts) else { continue }
             snap.power.append(Sensor(id: d.id, name: d.name, group: d.group, value: v, unit: .watts))
             if d.key == pstrKey { snap.systemPowerW = v }
         }
         appendBatteryPower(&snap, bat)
-        for d in tables.volts where detailed || d.essential {
+        for d in tables.volts where detailed || d.essential || pinned.contains(d.id) {
             guard let v = smc.readValue(d.key), SensorCatalog.validValue(v, unit: .volts) else { continue }
             snap.voltages.append(Sensor(id: d.id, name: d.name, group: d.group, value: v, unit: .volts))
         }
-        for d in tables.amps where detailed || d.essential {
+        for d in tables.amps where detailed || d.essential || pinned.contains(d.id) {
             guard let v = smc.readValue(d.key), SensorCatalog.validValue(v, unit: .amps) else { continue }
             snap.currents.append(Sensor(id: d.id, name: d.name, group: d.group, value: v, unit: .amps))
         }

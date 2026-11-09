@@ -1,20 +1,22 @@
 // Groups helper processes under the app that owns them (like iStat Menus / Activity Monitor's app view):
 // "Google Chrome Helper (Renderer)" ×20 → one "Google Chrome" row with the summed CPU / memory.
-// OWNER: lead. Used by the CPU and memory samplers on their background queue (not thread-safe;
-// each sampler owns its own instance).
+// Also names processes, so the CPU and memory lists agree. OWNER: lead. Used by the CPU and memory
+// samplers on their background queue (not thread-safe; each sampler owns its own instance).
 
 import Darwin
 import Foundation
 
 final class AppGrouper {
-    private struct Owner { var key: String; var name: String; var appPath: String? }
+    struct Row { var pid: Int32; var start: UInt64; var cpu: Double; var mem: UInt64 }
+
+    private struct Owner { var key: String; var name: String; var appPath: String?; var start: UInt64 }
     private var cache: [Int32: Owner] = [:]
 
-    /// rows: (pid, cpu %, footprint bytes, fallback name). Returns the top `limit` grouped rows.
-    func group(_ rows: [(pid: Int32, cpu: Double, mem: UInt64, name: String)], limit: Int, byCPU: Bool) -> [ProcessUsage] {
+    /// Groups rows by owning app and returns the top `limit` by CPU or memory.
+    func group(_ rows: [Row], limit: Int, byCPU: Bool) -> [ProcessUsage] {
         var groups: [String: (usage: ProcessUsage, lead: Double)] = [:]
         for r in rows {
-            let o = owner(r.pid, fallback: r.name)
+            let o = owner(r.pid, start: r.start)
             let weight = byCPU ? r.cpu : Double(r.mem)
             if var g = groups[o.key] {
                 g.usage.cpuPercent += r.cpu
@@ -33,8 +35,7 @@ final class AppGrouper {
         return Array(sorted.prefix(limit))
     }
 
-    /// Drop cached owners for pids that no longer exist (every call, so a recycled pid never
-    /// inherits a dead process's app).
+    /// Drop cached owners for pids that no longer exist.
     func prune(live: Set<Int32>) {
         cache = cache.filter { live.contains($0.key) }
     }
@@ -55,11 +56,19 @@ final class AppGrouper {
         return proc_pidpath(pid, &buf, UInt32(buf.count)) > 0 ? String(cString: buf) : nil
     }
 
-    private func owner(_ pid: Int32, fallback: String) -> Owner {
-        if let o = cache[pid] { return o }
-        var o = Owner(key: "pid:\(pid)", name: fallback, appPath: nil)
-        // Don't cache a failed lookup (e.g. a process caught mid-spawn); try again next time.
-        guard var path = Self.path(of: pid) else { return o }
+    private static func shortName(of pid: Int32) -> String? {
+        var buf = [CChar](repeating: 0, count: 256)
+        return proc_name(pid, &buf, UInt32(buf.count)) > 0 ? String(cString: buf) : nil
+    }
+
+    private func owner(_ pid: Int32, start: UInt64) -> Owner {
+        // The start time guards against a recycled pid inheriting a dead process's name or app.
+        if let o = cache[pid], o.start == start { return o }
+        guard var path = Self.path(of: pid) else {
+            // Caught mid-spawn or exiting: name it, but don't cache, so a later lookup can do better.
+            return Owner(key: "pid:\(pid)", name: Self.shortName(of: pid) ?? "pid \(pid)", appPath: nil, start: start)
+        }
+        let exe = (path as NSString).lastPathComponent
         // XPC services (e.g. com.apple.WebKit.WebContent) run on behalf of an app; like Activity Monitor,
         // charge them to their "responsible" app. Only for .xpc bundles: CLI tools would otherwise be
         // charged to the terminal that launched them.
@@ -67,14 +76,13 @@ final class AppGrouper {
             let r = AppGrouper.responsiblePid(pid)
             if r != pid, let rp = Self.path(of: r), rp.contains(".app/") { path = rp }
         }
-        do {
-            // Outermost bundle: the first "*.app" path component.
-            if let r = path.range(of: ".app/") {
-                let app = String(path[..<r.lowerBound]) + ".app"
-                var name = FileManager.default.displayName(atPath: app)
-                if name.hasSuffix(".app") { name.removeLast(4) }
-                o = Owner(key: app, name: name, appPath: app)
-            }
+        var o = Owner(key: "pid:\(pid)", name: exe.isEmpty ? (Self.shortName(of: pid) ?? "pid \(pid)") : exe, appPath: nil, start: start)
+        // Outermost bundle: the first "*.app" path component.
+        if let r = path.range(of: ".app/") {
+            let app = String(path[..<r.lowerBound]) + ".app"
+            var name = FileManager.default.displayName(atPath: app)
+            if name.hasSuffix(".app") { name.removeLast(4) }
+            o = Owner(key: app, name: name, appPath: app, start: start)
         }
         cache[pid] = o
         return o

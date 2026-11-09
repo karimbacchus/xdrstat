@@ -1,3 +1,4 @@
+import Darwin
 import SwiftUI
 
 struct MemoryPanel: View {
@@ -55,6 +56,12 @@ struct MemoryPanelContent: View {
                 }
                 .aspectRatio(1, contentMode: .fit)
             }
+            // Pressure over the last two minutes, banded like Activity Monitor: normal / warning / critical.
+            let p = state.memoryPressureHistory.values
+            BarHistory(layers: [p.map { min($0, 0.5) }, p.map { min(max($0 - 0.5, 0), 0.3) }, p.map { max($0 - 0.8, 0) }],
+                       colors: [Theme.accent, Theme.amber, Theme.bad], maxValue: 1)
+                .frame(height: 24)
+                .padding(.top, 2)
         }
     }
 
@@ -83,8 +90,8 @@ struct MemoryPanelContent: View {
 
     private var pagesCard: some View {
         Card(spacing: 3) {
-            InfoRowPlain(label: "Page Ins", parts: Fmt.rateParts(m.pageInsPerSec * 16384))
-            InfoRowPlain(label: "Page Outs", parts: Fmt.rateParts(m.pageOutsPerSec * 16384))
+            InfoRowPlain(label: "Page Ins", parts: Fmt.rateParts(m.pageInsPerSec * Double(vm_kernel_page_size)))
+            InfoRowPlain(label: "Page Outs", parts: Fmt.rateParts(m.pageOutsPerSec * Double(vm_kernel_page_size)))
             if let r = m.compressionRatio { InfoRowPlain(label: "Compression", parts: (String(format: "%.1f", r), "×")) }
         }
     }

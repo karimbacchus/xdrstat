@@ -103,18 +103,52 @@ struct NetworkSettings: View {
 }
 
 struct AboutSettings: View {
+    @LocalState private var update: UpdateCheck.State = .idle
+
     var body: some View {
         VStack(spacing: 10) {
-            Image(systemName: "gauge.with.dots.needle.67percent")
-                .font(.system(size: 44, weight: .light)).foregroundStyle(Theme.accent)
+            Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 76, height: 76)
             Text("XDRStat").font(.system(size: 22, weight: .semibold))
-            Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0")")
+            Text("Version \(UpdateCheck.currentVersion)")
                 .font(.callout).foregroundStyle(.secondary)
             Text("A lightweight system monitor for the menu bar — CPU, GPU, memory, network and sensors for Apple silicon.")
                 .font(.callout).multilineTextAlignment(.center).foregroundStyle(.secondary)
                 .frame(maxWidth: 320).padding(.top, 4)
+            updateRow.frame(height: 28).padding(.top, 6)
+            HStack(spacing: 18) {
+                Link("xdrstat.com", destination: UpdateCheck.website)
+                Link("Source on GitHub", destination: UpdateCheck.repository)
+            }
+            .font(.callout)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
+    }
+
+    @ViewBuilder private var updateRow: some View {
+        switch update {
+        case .idle:
+            Button("Check for Updates") { runCheck() }
+                .help("Asks GitHub for the latest release. XDRStat never checks on its own.")
+        case .checking:
+            HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Checking…").foregroundStyle(.secondary) }
+        case .upToDate:
+            Label("XDRStat is up to date.", systemImage: "checkmark.circle.fill").foregroundStyle(Theme.good)
+        case .available(let version, let page):
+            HStack(spacing: 10) {
+                Text("Version \(version) is available.")
+                Button("Download…") { NSWorkspace.shared.open(page) }.keyboardShortcut(.defaultAction)
+            }
+        case .failed:
+            HStack(spacing: 10) {
+                Text("Couldn’t reach GitHub.").foregroundStyle(.secondary)
+                Button("Try Again") { runCheck() }
+            }
+        }
+    }
+
+    private func runCheck() {
+        update = .checking
+        Task { @MainActor in update = await UpdateCheck.check() }
     }
 }

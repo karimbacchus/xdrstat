@@ -45,7 +45,6 @@ import Foundation
         let n = 120
         st.cpuUserHistory = hist(series(n, base: 0.16, amp: 0.12, seed: 1, lo: 0.01))
         st.cpuSystemHistory = hist(series(n, base: 0.07, amp: 0.05, seed: 2, lo: 0.005))
-        st.cpuHistory = hist(zip(st.cpuUserHistory.values, st.cpuSystemHistory.values).map { $0 + $1 })
         st.gpuHistory = hist(series(n, base: 0.35, amp: 0.3, seed: 4, lo: 0.02, hi: 1))
         // Memory
         let gb: UInt64 = 1 << 30
@@ -55,7 +54,6 @@ import Foundation
                                    pageInsPerSec: 38, pageOutsPerSec: 2, compressionRatio: 2.8,
                                    topProcesses: procs.map { ProcessUsage(pid: $0.pid, name: $0.name, cpuPercent: 0, memoryBytes: $0.memoryBytes) })
         st.memoryPressureHistory = hist(series(n, base: 0.28, amp: 0.1, seed: 5, lo: 0.05, hi: 1))
-        st.memoryUsedHistory = hist(series(n, base: 0.43, amp: 0.03, seed: 6, lo: 0.05, hi: 1))
         // Network
         st.network = NetworkSnapshot(
             downBytesPerSec: 3_480_000, upBytesPerSec: 126_000, totalDown: 48_200_000_000, totalUp: 6_900_000_000,
@@ -98,6 +96,7 @@ import Foundation
         st.gpuTempHistory = hist(series(n, base: 44, amp: 4, seed: 10))
         st.systemPowerHistory = hist(series(n, base: 16, amp: 6, seed: 11, lo: 5))
         st.pinnedSensorIDs = ["Ts00"]
+        st.pinnedHistory = st.cpuTempHistory
         return st
     }
 }

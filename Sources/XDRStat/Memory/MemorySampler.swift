@@ -21,7 +21,6 @@ final class MemorySampler {
     private var lastPageOuts: UInt64 = 0
     private var lastTime: UInt64 = 0
     private var haveLast = false
-    private var nameCache: [Int32: String] = [:]
     private let pageSize = UInt64(vm_kernel_page_size)
     private let totalMem: UInt64 = {
         var v: UInt64 = 0; var s = MemoryLayout<UInt64>.size
@@ -80,13 +79,14 @@ final class MemorySampler {
         }
         snap.pressure = pressure
 
-        // Swap
-        var sw = xsw_usage(); var sws = MemoryLayout<xsw_usage>.size
-        if sysctlbyname("vm.swapusage", &sw, &sws, nil, 0) == 0 {
-            snap.swapUsed = sw.xsu_used; snap.swapTotal = sw.xsu_total
+        if detailed {
+            // Swap and the process list only show in the panel.
+            var sw = xsw_usage(); var sws = MemoryLayout<xsw_usage>.size
+            if sysctlbyname("vm.swapusage", &sw, &sws, nil, 0) == 0 {
+                snap.swapUsed = sw.xsu_used; snap.swapTotal = sw.xsu_total
+            }
+            snap.topProcesses = topProcesses(limit: 8)
         }
-
-        if detailed { snap.topProcesses = topProcesses(limit: 8) }
         return snap
     }
 
@@ -96,7 +96,7 @@ final class MemorySampler {
         var pids = [Int32](repeating: 0, count: Int(n) + 32)
         let got = proc_listallpids(&pids, Int32(pids.count * MemoryLayout<Int32>.size))
         guard got > 0 else { return [] }
-        var rows: [(Int32, UInt64)] = []
+        var rows: [AppGrouper.Row] = []
         rows.reserveCapacity(Int(got))
         var live = Set<Int32>()
         for i in 0..<Int(got) {
@@ -110,24 +110,12 @@ final class MemorySampler {
             }
             if r != 0 { continue }
             live.insert(pid)
-            rows.append((pid, ru.ri_phys_footprint))
+            rows.append(AppGrouper.Row(pid: pid, start: ru.ri_proc_start_abstime, cpu: 0, mem: ru.ri_phys_footprint))
         }
-        // Name only the largest few hundred; the long tail can't make the top list once grouped.
-        rows.sort { $0.1 > $1.1 }
-        var named: [(pid: Int32, cpu: Double, mem: UInt64, name: String)] = []
-        for (pid, bytes) in rows.prefix(300) {
-            var name = nameCache[pid]
-            if name == nil {
-                var buf = [CChar](repeating: 0, count: 256)
-                let l = proc_name(pid, &buf, UInt32(buf.count))
-                name = l > 0 ? String(cString: buf) : "pid \(pid)"
-                nameCache[pid] = name
-            }
-            named.append((pid: pid, cpu: 0, mem: bytes, name: name!))
-        }
-        let out = grouper.group(named, limit: limit, byCPU: false)
+        // Only the largest few hundred can make the top list once grouped; skip resolving the long tail.
+        rows.sort { $0.mem > $1.mem }
+        let out = grouper.group(Array(rows.prefix(300)), limit: limit, byCPU: false)
         grouper.prune(live: live)
-        nameCache = nameCache.filter { live.contains($0.key) }   // every call: recycled pids get fresh names
         return out
     }
 }

@@ -11,14 +11,19 @@ import SwiftUI
 
 @MainActor
 final class StatusBarController: NSObject {
-    enum Kind: Int, CaseIterable { case cpu, memory, network, sensors }
+    typealias Kind = LabelKind
 
     private let monitor = SystemMonitor.shared
     private let settings = AppSettings.shared
     private var items: [Kind: NSStatusItem] = [:]
-    private var labelKeys: [Kind: String] = [:]
+    /// Pixels of the image each item currently shows; AppKit is only touched when they change.
+    private var shownPixels: [Kind: Data] = [:]
     private var bag = Set<AnyCancellable>()
     private var refreshScheduled = false
+    /// Nobody can see the menu bar while the displays sleep or another user's session is active,
+    /// so label work is skipped then (and caught up on wake).
+    private var screensAsleep = false, sessionInactive = false
+    private var labelsPaused: Bool { screensAsleep || sessionInactive }
 
     private var panel: DropdownPanel?
     private var openKind: Kind?
@@ -34,6 +39,22 @@ final class StatusBarController: NSObject {
         monitor.objectWillChange.merge(with: settings.objectWillChange)
             .sink { [weak self] _ in self?.scheduleRefresh() }
             .store(in: &bag)
+
+        let flags: [(Notification.Name, ReferenceWritableKeyPath<StatusBarController, Bool>, Bool)] = [
+            (NSWorkspace.screensDidSleepNotification, \.screensAsleep, true),
+            (NSWorkspace.screensDidWakeNotification, \.screensAsleep, false),
+            (NSWorkspace.sessionDidResignActiveNotification, \.sessionInactive, true),
+            (NSWorkspace.sessionDidBecomeActiveNotification, \.sessionInactive, false)]
+        for (name, flag, value) in flags {
+            NSWorkspace.shared.notificationCenter.publisher(for: name)
+                .sink { [weak self] _ in
+                    guard let self else { return }
+                    let wasPaused = self.labelsPaused
+                    self[keyPath: flag] = value
+                    if wasPaused && !self.labelsPaused { self.refresh() }
+                }
+                .store(in: &bag)
+        }
         refresh()
     }
 
@@ -62,7 +83,6 @@ final class StatusBarController: NSObject {
     }
 
     private func refresh() {
-        let state = MonitorState(monitor, settings)
         // Create/remove in reverse so the left-to-right order is CPU, Memory, Network, Sensors.
         for k in Kind.allCases.reversed() {
             if isVisible(k) {
@@ -70,10 +90,14 @@ final class StatusBarController: NSObject {
             } else if let item = items.removeValue(forKey: k) {
                 if openKind == k { closePanel() }
                 NSStatusBar.system.removeStatusItem(item)
-                labelKeys[k] = nil
+                shownPixels[k] = nil
             }
         }
-        for (k, item) in items { updateLabel(k, item, state) }
+        guard !labelsPaused else { return }
+        let state = MonitorState(monitor, settings)
+        // Render for the sharpest attached display; AppKit scales down for the others.
+        let scale = max(2, NSScreen.screens.map(\.backingScaleFactor).max() ?? 2)
+        for (k, item) in items { updateLabel(k, item, state, scale: scale) }
     }
 
     private func makeItem(_ k: Kind) -> NSStatusItem {
@@ -90,47 +114,23 @@ final class StatusBarController: NSObject {
         return item
     }
 
-    /// Re-renders a label only when what it displays actually changed.
-    private func updateLabel(_ k: Kind, _ item: NSStatusItem, _ st: MonitorState) {
-        let key = labelKey(k, st)
-        guard key != labelKeys[k], let button = item.button else { return }
-        labelKeys[k] = key
-        let image: NSImage
-        switch k {
-        case .cpu: image = MenuBarRender.image(CPUMenuLabelContent(state: st))
-        case .memory: image = MenuBarRender.image(MemoryMenuLabelContent(state: st))
-        case .network: image = MenuBarRender.image(NetworkMenuLabelContent(state: st))
-        case .sensors: image = MenuBarRender.image(SensorsMenuLabelContent(state: st))
-        }
-        button.image = image
-    }
-
-    private func labelKey(_ k: Kind, _ st: MonitorState) -> String {
-        // Int(NaN/inf) traps, so quantize defensively.
-        func q(_ x: Double, _ scale: Double) -> Int { let v = (x * scale).rounded(); return v.isFinite ? Int(v) : 0 }
-        let style = "\(st.style)"
-        switch k {
-        case .cpu:
-            return style + "|\(q(st.chip.cpu.usage, 100))|"
-                + st.chip.cpu.clusters.map { "\(q($0.usage, 14))" }.joined(separator: ",")
-        case .memory:
-            return style + "|\(q(st.memory.usedFraction, 100))|\(q(st.memory.pressure, 14))"
-        case .network:
-            var key = style + "|" + Fmt.rate(st.network.upBytesPerSec) + "|" + Fmt.rate(st.network.downBytesPerSec)
-            // The mini graph scrolls every sample (history count saturates at capacity, so use the counter).
-            if st.style == .graph { key += "|\(monitor.sampleCount)" }
-            return key
-        case .sensors:
-            var key = style + "|" + SensorsMenuLabelContent.values(st).joined(separator: ",")
-            if st.style == .graph { key += "|\(monitor.sampleCount)" }
-            return key
-        }
+    /// Redraws a label (cheap) and hands it to AppKit only if the pixels changed (expensive: AppKit
+    /// re-lays out and re-snapshots the item). An idle network graph or a steady temperature costs nothing.
+    private func updateLabel(_ k: Kind, _ item: NSStatusItem, _ st: MonitorState, scale: CGFloat) {
+        guard let button = item.button else { return }
+        let r = MenuBarLabel.render(k, st, scale: scale)
+        guard r.pixels != shownPixels[k] else { return }
+        shownPixels[k] = r.pixels
+        button.image = r.image
+        button.setAccessibilityLabel(r.accessibility)
     }
 
     // MARK: Panels
 
-    /// QA hook: `XDRSTAT_OPEN=cpu|memory|network|sensors` opens that panel as if its item were clicked.
+    /// QA hook: `XDRSTAT_OPEN=cpu|memory|network|sensors` opens that panel as if its item were clicked
+    /// (`XDRSTAT_OPEN=close` closes it again).
     func debugOpen(_ name: String) {
+        if name == "close" { closePanel(); return }
         let names = ["cpu", "memory", "network", "sensors"]
         guard let i = names.firstIndex(of: name), let k = Kind(rawValue: i), let b = items[k]?.button else { return }
         itemClicked(b)

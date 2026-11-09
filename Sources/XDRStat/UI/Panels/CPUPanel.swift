@@ -200,7 +200,7 @@ struct CPUPanelContent: View {
     private var loadCard: some View {
         Card(spacing: 4) {
             CardTitle(title: "Load") {
-                Text(cpu.loadAverage.prefix(3).map { String(format: "%g", ($0 * 100).rounded() / 100) }.joined(separator: " "))
+                Text(cpu.loadAverage.prefix(3).map { String(format: "%.2f", $0) }.joined(separator: "  "))
                     .font(.system(size: 13, weight: .medium).monospacedDigit())
             }
             if cpu.processCount > 0 {

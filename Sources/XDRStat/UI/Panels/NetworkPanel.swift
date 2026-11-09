@@ -76,7 +76,8 @@ struct NetworkPanelContent: View {
                 else {
                     Text("Wi‑Fi").font(.system(size: 13))
                     Button { PanelActions.requestLocation() } label: {
-                        Label("Show network name", systemImage: "location").font(.system(size: 11)).foregroundStyle(.orange)
+                        Label("Show name", systemImage: "location").font(.system(size: 11)).foregroundStyle(.orange)
+                            .lineLimit(1).fixedSize()
                     }
                     .buttonStyle(.plain)
                     .help("macOS only reveals the Wi‑Fi name to apps with Location access. Click to grant it.")

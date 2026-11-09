@@ -12,6 +12,11 @@ final class NetworkSampler {
     private var store: SCDynamicStore?
     private var ifaceMeta: [String: (name: String, kind: InterfaceKind)] = [:]
     private var metaTick = -1000
+    private var addrs: [String: Addrs] = [:]
+    private var addrsTick = -1000
+    private var primary: String?, gateway: String?, dns: [String] = []
+    private var globalTick = -1000
+    private var routeBuf: [UInt8] = []
     private let ip = PublicIPFetcher()
 
     private func dynStore() -> SCDynamicStore? {
@@ -25,25 +30,20 @@ final class NetworkSampler {
         let now = DispatchTime.now().uptimeNanoseconds
 
         if tick - metaTick >= 30 { refreshMeta(); metaTick = tick }
+        // Addresses, router and DNS only show in the panel. While it's closed they're refreshed every 5 s:
+        // addresses decide which interfaces count, and the public IP lookup watches the primary interface.
+        if detailed || tick - globalTick >= 5 { readGlobal(); globalTick = tick }
+        if detailed || tick - addrsTick >= 5 { addrs = readAddresses(); addrsTick = tick }
+        snap.gateway = gateway
+        snap.dnsServers = dns
 
-        // Primary / gateway / DNS
-        var primary: String?
-        if let s = dynStore() {
-            if let d = SCDynamicStoreCopyValue(s, "State:/Network/Global/IPv4" as CFString) as? [String: Any] {
-                primary = d["PrimaryInterface"] as? String
-                snap.gateway = d["Router"] as? String
-            }
-            if let d = SCDynamicStoreCopyValue(s, "State:/Network/Global/DNS" as CFString) as? [String: Any] {
-                snap.dnsServers = d["ServerAddresses"] as? [String] ?? []
-            }
-        }
-
-        let counters = readCounters()
-        let addrs = readAddresses()
+        let counters = readCounters(withMAC: detailed)
 
         var infos: [NetworkInterfaceInfo] = []
+        var seen = Set<String>()
         for c in counters {
             let name = c.name
+            seen.insert(name)
             let isUp = (c.flags & UInt32(IFF_UP)) != 0 && (c.flags & UInt32(IFF_RUNNING)) != 0
             let a = addrs[name]
             let meta = ifaceMeta[name]
@@ -83,10 +83,10 @@ final class NetworkSampler {
             infos.append(NetworkInterfaceInfo(
                 bsdName: name, displayName: meta?.name ?? name, kind: kind,
                 isPrimary: name == primary, isUp: isUp, ipv4: ipv4, ipv6: ipv6,
-                macAddress: a?.mac, downBytesPerSec: down, upBytesPerSec: up,
+                macAddress: c.mac, downBytesPerSec: down, upBytesPerSec: up,
                 totalDown: c.rx, totalUp: c.tx))
         }
-        last = last.filter { k, _ in counters.contains { $0.name == k } }
+        last = last.filter { seen.contains($0.key) }
         infos.sort { ($0.isPrimary ? 0 : 1, $0.bsdName) < ($1.isPrimary ? 0 : 1, $1.bsdName) }
         snap.interfaces = infos
 
@@ -99,89 +99,124 @@ final class NetworkSampler {
             snap.totalUp &+= i.totalUp
         }
 
-        // Wi-Fi
-        // CoreWLAN is the costliest call here and only the Network panel shows it.
-        if detailed && (tick % 2 == 1 || cachedWiFi == nil) { cachedWiFi = readWiFi() }
+        // Wi-Fi: CoreWLAN is the costliest call here and only the Network panel shows it. Dropped while
+        // the panel is closed so it never reopens showing a stale network.
+        if !detailed { cachedWiFi = nil }
+        else if tick % 2 == 1 || cachedWiFi == nil { cachedWiFi = readWiFi() }
         snap.wifi = cachedWiFi
 
         snap.publicIPv4 = ip.current(primary: primary)
         return snap
     }
 
+    private func readGlobal() {
+        guard let s = dynStore() else { return }
+        let v4 = SCDynamicStoreCopyValue(s, "State:/Network/Global/IPv4" as CFString) as? [String: Any]
+        primary = v4?["PrimaryInterface"] as? String
+        gateway = v4?["Router"] as? String
+        let d = SCDynamicStoreCopyValue(s, "State:/Network/Global/DNS" as CFString) as? [String: Any]
+        dns = d?["ServerAddresses"] as? [String] ?? []
+    }
+
     // MARK: counters (64-bit via NET_RT_IFLIST2)
 
-    private struct RawCounters { var name: String; var flags: UInt32; var rx: UInt64; var tx: UInt64 }
+    private struct RawCounters { var name: String; var flags: UInt32; var rx: UInt64; var tx: UInt64; var mac: String? }
 
-    private func readCounters() -> [RawCounters] {
+    private func readCounters(withMAC: Bool) -> [RawCounters] {
         var mib: [Int32] = [CTL_NET, PF_ROUTE, 0, 0, NET_RT_IFLIST2, 0]
-        // The table can grow between the size query and the read (VPN up, USB Ethernet plugged in),
-        // which fails with ENOMEM; allocate headroom and retry a couple of times.
+        // Reuse the buffer from last time; grow it (with headroom, as the table can grow between the size
+        // query and the read when a VPN comes up or an adapter is plugged in) only when it's too small.
         var len = 0
-        var buf: [UInt8] = []
         var ok = false
         for _ in 0..<3 {
-            guard sysctl(&mib, UInt32(mib.count), nil, &len, nil, 0) == 0, len > 0 else { return [] }
-            len += len / 8 + 512
-            buf = [UInt8](repeating: 0, count: len)
-            if sysctl(&mib, UInt32(mib.count), &buf, &len, nil, 0) == 0 { ok = true; break }
-            if errno != ENOMEM { return [] }
+            len = routeBuf.count
+            if len > 0 {
+                if sysctl(&mib, UInt32(mib.count), &routeBuf, &len, nil, 0) == 0 { ok = true; break }
+                if errno != ENOMEM { return [] }
+            }
+            var need = 0
+            guard sysctl(&mib, UInt32(mib.count), nil, &need, nil, 0) == 0, need > 0 else { return [] }
+            routeBuf = [UInt8](repeating: 0, count: need + need / 8 + 512)
         }
         guard ok else { return [] }
         var out: [RawCounters] = []
-        buf.withUnsafeBytes { raw in
+        routeBuf.withUnsafeBytes { raw in
+            let hdrSize = MemoryLayout<if_msghdr>.size, hdr2Size = MemoryLayout<if_msghdr2>.size
             var off = 0
-            while off + MemoryLayout<if_msghdr>.size <= len {
-                let hdr = raw.baseAddress!.advanced(by: off).assumingMemoryBound(to: if_msghdr.self).pointee
+            while off + hdrSize <= len {
+                let hdr = raw.loadUnaligned(fromByteOffset: off, as: if_msghdr.self)
                 let mlen = Int(hdr.ifm_msglen)
-                if mlen <= 0 { break }
-                if Int32(hdr.ifm_type) == RTM_IFINFO2, off + MemoryLayout<if_msghdr2>.size <= len {
-                    let m = raw.baseAddress!.advanced(by: off).assumingMemoryBound(to: if_msghdr2.self).pointee
-                    var nb = [CChar](repeating: 0, count: Int(IF_NAMESIZE))
-                    if if_indextoname(UInt32(m.ifm_index), &nb) != nil {
-                        out.append(RawCounters(name: String(cString: nb), flags: UInt32(bitPattern: m.ifm_flags),
-                                               rx: m.ifm_data.ifi_ibytes, tx: m.ifm_data.ifi_obytes))
+                guard mlen > 0, off + mlen <= len else { break }
+                defer { off += mlen }
+                guard Int32(hdr.ifm_type) == RTM_IFINFO2, mlen >= hdr2Size else { continue }
+                let m = raw.loadUnaligned(fromByteOffset: off, as: if_msghdr2.self)
+                // The interface's link-level sockaddr_dl follows the header: name, then MAC. Reading it
+                // here avoids if_indextoname(), which walks every interface's addresses per call.
+                var name = "", mac: String?
+                let sdl = off + hdr2Size, end = off + mlen
+                if (m.ifm_addrs & RTA_IFP) != 0, sdl + 8 <= end, Int32(raw[sdl + 1]) == AF_LINK {
+                    let nlen = Int(raw[sdl + 5]), alen = Int(raw[sdl + 6]), data = sdl + 8
+                    if nlen > 0, data + nlen <= end {
+                        name = String(decoding: UnsafeRawBufferPointer(rebasing: raw[data..<(data + nlen)]), as: UTF8.self)
+                    }
+                    if withMAC, alen == 6, data + nlen + 6 <= end {
+                        mac = Self.hex(UnsafeRawBufferPointer(rebasing: raw[(data + nlen)..<(data + nlen + 6)]))
                     }
                 }
-                off += mlen
+                if name.isEmpty {
+                    var nb = [CChar](repeating: 0, count: Int(IF_NAMESIZE))
+                    if if_indextoname(UInt32(m.ifm_index), &nb) != nil { name = String(cString: nb) }
+                }
+                guard !name.isEmpty else { continue }
+                out.append(RawCounters(name: name, flags: UInt32(bitPattern: m.ifm_flags),
+                                       rx: m.ifm_data.ifi_ibytes, tx: m.ifm_data.ifi_obytes, mac: mac))
             }
         }
         return out
     }
 
-    private struct Addrs { var v4: [String] = []; var v6: [String] = []; var mac: String? }
+    private static func hex(_ bytes: UnsafeRawBufferPointer) -> String {
+        let digits = Array("0123456789abcdef".utf8)
+        var s = [UInt8]()
+        s.reserveCapacity(bytes.count * 3)
+        for (i, b) in bytes.enumerated() {
+            if i > 0 { s.append(UInt8(ascii: ":")) }
+            s.append(digits[Int(b >> 4)]); s.append(digits[Int(b & 0xf)])
+        }
+        return String(decoding: s, as: UTF8.self)
+    }
+
+    private struct Addrs { var v4: [String] = []; var v6: [String] = [] }
 
     private func readAddresses() -> [String: Addrs] {
         var res: [String: Addrs] = [:]
         var head: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&head) == 0, let first = head else { return res }
         defer { freeifaddrs(head) }
+        var buf = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
         var p: UnsafeMutablePointer<ifaddrs>? = first
         while let cur = p {
             defer { p = cur.pointee.ifa_next }
             guard let sa = cur.pointee.ifa_addr else { continue }
-            let name = String(cString: cur.pointee.ifa_name)
-            var a = res[name] ?? Addrs()
+            // inet_ntop, not getnameinfo: the latter appends "%scope" to link-local addresses by looking
+            // the interface up by index (another full interface walk per address).
             switch Int32(sa.pointee.sa_family) {
-            case AF_INET, AF_INET6:
-                var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-                if getnameinfo(sa, socklen_t(sa.pointee.sa_len), &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST) == 0 {
-                    var s = String(cString: host)
-                    if let pct = s.firstIndex(of: "%") { s = String(s[..<pct]) }
-                    if Int32(sa.pointee.sa_family) == AF_INET { a.v4.append(s) } else { a.v6.append(s) }
+            case AF_INET:
+                var a = sa.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr }
+                if inet_ntop(AF_INET, &a, &buf, socklen_t(buf.count)) != nil {
+                    res[String(cString: cur.pointee.ifa_name), default: Addrs()].v4.append(String(cString: buf))
                 }
-            case AF_LINK:
-                sa.withMemoryRebound(to: sockaddr_dl.self, capacity: 1) { dl in
-                    if dl.pointee.sdl_alen == 6 {
-                        let nlen = Int(dl.pointee.sdl_nlen)
-                        let bytes: [UInt8] = withUnsafePointer(to: &dl.pointee.sdl_data) {
-                            $0.withMemoryRebound(to: UInt8.self, capacity: 12 + nlen) { b in (0..<6).map { b[nlen + $0] } }
-                        }
-                        a.mac = bytes.map { String(format: "%02x", $0) }.joined(separator: ":")
-                    }
+            case AF_INET6:
+                var a = sa.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { $0.pointee.sin6_addr }
+                withUnsafeMutableBytes(of: &a) { b in
+                    // The kernel embeds the scope id in bytes 2-3 of link-local addresses (KAME); clear it.
+                    if b[0] == 0xfe && (b[1] & 0xc0) == 0x80 { b[2] = 0; b[3] = 0 }
+                }
+                if inet_ntop(AF_INET6, &a, &buf, socklen_t(buf.count)) != nil {
+                    res[String(cString: cur.pointee.ifa_name), default: Addrs()].v6.append(String(cString: buf))
                 }
             default: break
             }
-            res[name] = a
         }
         return res
     }

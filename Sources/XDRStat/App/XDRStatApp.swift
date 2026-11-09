@@ -42,8 +42,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         statusBar = StatusBarController()
-        if let name = ProcessInfo.processInfo.environment["XDRSTAT_OPEN"] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in self?.statusBar?.debugOpen(name) }
+        // QA: XDRSTAT_OPEN="cpu,close,sensors" runs those steps 4 s apart.
+        if let steps = ProcessInfo.processInfo.environment["XDRSTAT_OPEN"]?.split(separator: ",") {
+            for (i, step) in steps.enumerated() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4 * Double(i + 1)) { [weak self] in self?.statusBar?.debugOpen(String(step)) }
+            }
         }
     }
 }

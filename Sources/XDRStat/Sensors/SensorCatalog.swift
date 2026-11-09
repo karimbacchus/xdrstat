@@ -9,8 +9,10 @@ struct SensorDef {
     var group: SensorGroup
     var unit: SensorUnit
     var info: SMCKeyInfo
-    /// Read on every tick (headline / compact view). Others only when `detailed`.
+    /// Read while the Sensors panel is closed (menu bar headline). Others only when detailed or pinned.
     var essential: Bool
+    /// Has a friendly name (sorted first in its section).
+    var named = false
     var role: Role
     enum Role { case plain, cpuDie, gpuDie, memDie }
 }
@@ -123,13 +125,20 @@ enum SensorCatalog {
                 case UInt8(ascii: "P"):
                     if powerBlacklist.contains(ks) { continue }
                     let (n, g) = powerNames[ks] ?? ("Rail \(ks)", .power)
-                    t.power.append(def(key, ks, n, g, .watts, info, essential: powerNames[ks] != nil))
+                    // Only System Total feeds the closed-panel state (the power history).
+                    var d = def(key, ks, n, g, .watts, info, essential: ks == "PSTR")
+                    d.named = powerNames[ks] != nil
+                    t.power.append(d)
                 case UInt8(ascii: "V"):
                     let (n, g) = voltNames[ks] ?? ("Voltage \(ks)", .power)
-                    t.volts.append(def(key, ks, n, g, .volts, info, essential: voltNames[ks] != nil))
+                    var d = def(key, ks, n, g, .volts, info, essential: false)
+                    d.named = voltNames[ks] != nil
+                    t.volts.append(d)
                 default:
                     let (n, g) = ampNames[ks] ?? ("Current \(ks)", .power)
-                    t.amps.append(def(key, ks, n, g, .amps, info, essential: ampNames[ks] != nil))
+                    var d = def(key, ks, n, g, .amps, info, essential: false)
+                    d.named = ampNames[ks] != nil
+                    t.amps.append(d)
                 }
             case UInt8(ascii: "F"):
                 if ks == "FNum", let v = smc.readValue(key) { fanCount = Int(v) }
@@ -167,7 +176,7 @@ enum SensorCatalog {
         t.amps.sort { $0.keyString < $1.keyString }
         // Named ones first.
         func named(_ a: SensorDef, _ b: SensorDef) -> Bool {
-            if a.essential != b.essential { return a.essential }
+            if a.named != b.named { return a.named }
             if a.keyString == "PSTR" || b.keyString == "PSTR" { return a.keyString == "PSTR" }
             return a.keyString < b.keyString
         }

@@ -71,10 +71,12 @@ enum Fmt {
 
     static func minutes(_ m: Int) -> String { m >= 60 ? "\(m / 60)h \(m % 60)m" : "\(m)m" }
 
+    private static let rpmFormatter: NumberFormatter = {
+        let f = NumberFormatter(); f.numberStyle = .decimal; f.maximumFractionDigits = 0; return f
+    }()
     static func rpm(_ r: Double) -> String {
-        if r < 1 { return "Off" }   // Fans park at 0 rpm when the system is cool.
-        let f = NumberFormatter(); f.numberStyle = .decimal; f.maximumFractionDigits = 0
-        return (f.string(from: NSNumber(value: r)) ?? "\(Int(r))") + " rpm"
+        if !(r >= 1) { return "Off" }   // Fans park at 0 rpm when the system is cool (and NaN never shows).
+        return (rpmFormatter.string(from: NSNumber(value: r)) ?? "\(Int(r))") + " rpm"
     }
 
     static func sensor(_ s: Sensor, unit: TemperatureUnit) -> String {

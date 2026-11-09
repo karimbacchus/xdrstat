@@ -6,7 +6,7 @@
 import Foundation
 
 final class ChipSampler {
-    private let ior = IOReportSession()
+    private let report = IOReportSession()
     private let usage = CPUUsageSampler()
     private let topology: CoreTopology
     private let freq = FrequencyTables()
@@ -15,12 +15,24 @@ final class ChipSampler {
     private let gpuTable: [Double]?
     private let chipName: String
     private let bootTime: Date?
+    private var tick = 0
     // The Energy Model counters only advance about every other 1 s tick (a tick often reads exactly 0 mJ
     // on every channel). Joules are therefore accumulated until the sentinel channel moves, and watts are
     // computed over the full accumulated real time. Separate accumulators for the SoC group and GPU Energy.
     private struct Acc { var joules: [String: Double] = [:]; var secs = 0.0; var lastWatts: [String: Double] = [:] }
     private var socAcc = Acc()
     private var gpuAcc = Acc()
+
+    /// Everything derived from IOReport (power and frequencies). Only the CPU panel shows these, so
+    /// while it's closed they're refreshed every 4th tick and reused in between: still warm when the
+    /// panel opens, without a full IOReport sample (~3 ms) every second.
+    private struct ReportValues {
+        var coreFreq: [Int: Double] = [:], corePower: [Int: Double] = [:]
+        var clusterFreq: [Int: Double] = [:], clusterMax: [Int: Double] = [:], clusterPower: [Int: Double] = [:]
+        var cpuPower: Double?, gpuFreq: Double?, gpuPower: Double?
+        var components: [PowerComponent] = []
+    }
+    private var reportValues = ReportValues()
 
     init() {
         topology = CoreTopology(cpuCount: usage.cpuCount)
@@ -35,105 +47,127 @@ final class ChipSampler {
         var mib: [Int32] = [CTL_KERN, KERN_BOOTTIME]
         bootTime = sysctl(&mib, 2, &tv, &tvs, nil, 0) == 0 ? Date(timeIntervalSince1970: TimeInterval(tv.tv_sec)) : nil
         _ = usage.sample()          // prime deltas
-        _ = ior?.sampleDelta()
+        _ = report?.sampleDelta()
     }
 
+    // Short names: the CPU panel's power legend is two narrow columns.
     private static let friendly: [(String, String)] = [
-        ("ANE", "ANE"), ("DRAM", "DRAM"), ("DISPEXT", "External Display"), ("DISP", "Display"),
-        ("FAB", "Fabric"), ("AMCC", "Memory Controller"), ("DCS", "DRAM Controller"), ("AVE", "Media Engine"),
-        ("ISP", "ISP"), ("MSR", "Media Scaler"), ("AFR", "AFR"), ("PCIe Port", "PCIe"), ("apciec", "PCIe")
+        ("ANE", "ANE"), ("DRAM", "DRAM"), ("DISPEXT", "Ext Display"), ("DISP", "Display"),
+        ("FAB", "Fabric"), ("AMCC", "Mem Ctrl"), ("DCS", "DRAM Ctrl"), ("AVE", "Media"),
+        ("ISP", "ISP"), ("MSR", "Scaler"), ("AFR", "AFR"), ("PCIe Port", "PCIe"), ("apciec", "PCIe")
     ]
 
     func sample(detailed: Bool) -> ChipSnapshot {
         autoreleasepool { sampleImpl(detailed: detailed) }
     }
 
-    private func sampleImpl(detailed: Bool) -> ChipSnapshot {
-        var snap = ChipSnapshot()
-        snap.chipName = chipName
-        let delta = ior?.sampleDelta()
-        let secs = delta?.elapsed ?? 1
+    /// The CPU panel opened: take the baseline process scan now.
+    func beginProcessSampling() { procs.prime() }
 
-        var watts: [String: Double] = [:]
+    /// Shortly after `beginProcessSampling`: the first per-process list, unless a regular tick already made one.
+    func processesIfStillPending() -> ProcessSampler.Result? {
+        procs.awaitingFirstList ? procs.sample(detailed: true) : nil
+    }
+
+    private func stateChannelName(_ e: CoreTopology.Entry) -> String {
+        e.cluster == 0 ? "PCPU\(e.indexInCluster)" : "MCPU\(e.cluster - 1)\(e.indexInCluster)"
+    }
+    private func energyChannelName(_ e: CoreTopology.Entry) -> String {
+        e.cluster == 0 ? "PACC_\(e.indexInCluster)" : "MCPU\(e.cluster - 1)_\(e.indexInCluster)"
+    }
+
+    private func refreshReport() {
+        guard let delta = report?.sampleDelta() else { return }
         var cpuStates: [String: [(name: String, residency: Int64)]] = [:]
         var gpuStates: [(name: String, residency: Int64)] = []
-        if let delta {
-            for c in delta.channels {
-                if c.group == "Energy Model" {
-                    let j = IOReportSession.joules(c)
-                    if c.name == "GPU Energy" { gpuAcc.joules[c.name, default: 0] += j }
-                    else { socAcc.joules[c.name, default: 0] += j }
-                } else if c.group == "CPU Stats" {
-                    cpuStates[c.name] = c.states
-                } else if c.group == "GPU Stats", c.name == "GPUPH" {
-                    gpuStates = c.states
-                }
+        for c in delta.channels {
+            if c.group == "Energy Model" {
+                let j = IOReportSession.joules(c)
+                if c.name == "GPU Energy" { gpuAcc.joules[c.name, default: 0] += j }
+                else { socAcc.joules[c.name, default: 0] += j }
+            } else if c.group == "CPU Stats" {
+                cpuStates[c.name] = c.states
+            } else if c.group == "GPU Stats", c.name == "GPUPH" {
+                gpuStates = c.states
             }
         }
-
-        if delta != nil {
-            for which in 0..<2 {
-                var acc = which == 0 ? socAcc : gpuAcc
-                acc.secs += secs
-                let sentinel = which == 0 ? "CPU Energy" : "GPU Energy"
-                if (acc.joules[sentinel] ?? 0) > 0 {
-                    acc.lastWatts = acc.joules.mapValues { $0 / acc.secs }
-                    acc.joules = [:]; acc.secs = 0
-                } else if acc.secs > 10 {   // counters genuinely stuck at zero: report zeros
-                    acc.lastWatts = acc.joules.mapValues { $0 / acc.secs }
-                    acc.joules = [:]; acc.secs = 0
-                }
-                if which == 0 { socAcc = acc } else { gpuAcc = acc }
+        for which in 0..<2 {
+            var acc = which == 0 ? socAcc : gpuAcc
+            acc.secs += delta.elapsed
+            let sentinel = which == 0 ? "CPU Energy" : "GPU Energy"
+            // Report once the sentinel moved, or after 10 s of genuinely idle (zero) counters.
+            if (acc.joules[sentinel] ?? 0) > 0 || acc.secs > 10 {
+                acc.lastWatts = acc.joules.mapValues { $0 / acc.secs }
+                acc.joules = [:]; acc.secs = 0
             }
+            if which == 0 { socAcc = acc } else { gpuAcc = acc }
         }
-        watts = socAcc.lastWatts.merging(gpuAcc.lastWatts) { a, _ in a }
+        let watts = socAcc.lastWatts.merging(gpuAcc.lastWatts) { a, _ in a }
 
-        let u = usage.sample()
-        var cores: [CoreSample] = []
-        let n = usage.cpuCount
-        func stateChannelName(_ e: CoreTopology.Entry) -> String {
-            e.cluster == 0 ? "PCPU\(e.indexInCluster)" : "MCPU\(e.cluster - 1)\(e.indexInCluster)"
-        }
-        func energyChannelName(_ e: CoreTopology.Entry) -> String {
-            e.cluster == 0 ? "PACC_\(e.indexInCluster)" : "MCPU\(e.cluster - 1)_\(e.indexInCluster)"
-        }
+        var v = ReportValues()
         var tableCache: [Int: [Double]?] = [:]
         func cpuTable(for states: [(name: String, residency: Int64)]) -> [Double]? {
-            let v = states.filter { $0.name.hasPrefix("V") }.count
-            if let t = tableCache[v] { return t }
-            let t = freq.cpuTable(count: v); tableCache[v] = t; return t
+            let n = states.filter { $0.name.hasPrefix("V") }.count
+            if let t = tableCache[n] { return t }
+            let t = freq.cpuTable(count: n); tableCache[n] = t; return t
         }
         var clusterFreqSum: [Int: (sum: Double, w: Double)] = [:]
-        var clusterMax: [Int: Double] = [:]
-        for l in 0..<n {
+        for l in 0..<usage.cpuCount {
             guard let e = topology.entries[l] else { continue }
-            let st = cpuStates[stateChannelName(e)]
-            let table = st.flatMap { cpuTable(for: $0) }
-            var core = CoreSample(id: l, kind: e.kind, cluster: e.cluster,
-                                  user: (u.map { l < $0.count ? $0[l].user : 0 }) ?? 0,
-                                  system: (u.map { l < $0.count ? $0[l].system : 0 }) ?? 0,
-                                  frequencyMHz: nil, powerW: watts[energyChannelName(e)])
-            if let st, let a = FrequencyMath.cpuActive(st, table: table) {
-                core.frequencyMHz = a.mhz
+            v.corePower[l] = watts[energyChannelName(e)]
+            guard let st = cpuStates[stateChannelName(e)] else { continue }
+            let table = cpuTable(for: st)
+            if let a = FrequencyMath.cpuActive(st, table: table) {
+                v.coreFreq[l] = a.mhz
                 var cur = clusterFreqSum[e.cluster] ?? (0, 0)
                 cur.sum += a.mhz * a.weight; cur.w += a.weight
                 clusterFreqSum[e.cluster] = cur
             }
-            if let t = table, let m = t.max() { clusterMax[e.cluster] = m }
-            cores.append(core)
+            if let m = table?.max() { v.clusterMax[e.cluster] = m }
         }
-        cores.sort { $0.id < $1.id }
+        for (cl, f) in clusterFreqSum where f.w > 0 { v.clusterFreq[cl] = f.sum / f.w }
+        for cl in Set(topology.entries.values.map(\.cluster)) {
+            v.clusterPower[cl] = watts[cl == 0 ? "PCPU" : "MCPU\(cl - 1)"]
+        }
+        v.cpuPower = watts["CPU Energy"]
+        v.gpuFreq = FrequencyMath.gpuActive(gpuStates, table: gpuTable)
+        // "GPU Energy" (nJ) is preferred; "GPU0" (mJ) is a coarser fallback.
+        v.gpuPower = watts["GPU Energy"] ?? watts["GPU0"]
+        var comps: [String: Double] = [:]
+        let skip: Set<String> = ["GPU0", "GPU Energy", "CPU Energy"]
+        for (name, w) in watts where w > 0.01 && !skip.contains(name) {
+            guard let f = Self.friendly.first(where: { name.hasPrefix($0.0) })?.1 else { continue }
+            comps[f, default: 0] += w
+        }
+        v.components = comps.map { PowerComponent(name: $0.key, watts: $0.value) }.sorted { $0.watts > $1.watts }
+        reportValues = v
+    }
+
+    private func sampleImpl(detailed: Bool) -> ChipSnapshot {
+        tick += 1
+        if detailed || tick % 4 == 0 { refreshReport() }
+        let rv = reportValues
+
+        var snap = ChipSnapshot()
+        snap.chipName = chipName
+        let u = usage.sample()
+        var cores: [CoreSample] = []
+        for l in 0..<usage.cpuCount {
+            guard let e = topology.entries[l] else { continue }
+            let (user, system) = u.map { l < $0.count ? ($0[l].user, $0[l].system) : (0, 0) } ?? (0, 0)
+            cores.append(CoreSample(id: l, kind: e.kind, cluster: e.cluster, user: user, system: system,
+                                    frequencyMHz: rv.coreFreq[l], powerW: rv.corePower[l]))
+        }
         snap.cpu.cores = cores
 
         let names = [0: "Super", 1: "Performance 1", 2: "Performance 2"]
         for cl in Set(cores.map { $0.cluster }).sorted() {
             let members = cores.filter { $0.cluster == cl }
             let avg = members.isEmpty ? 0 : members.map { $0.usage }.reduce(0, +) / Double(members.count)
-            let ch = cl == 0 ? "PCPU" : "MCPU\(cl - 1)"
-            let f = clusterFreqSum[cl].flatMap { $0.w > 0 ? $0.sum / $0.w : nil }
             snap.cpu.clusters.append(ClusterSample(id: cl, name: names[cl] ?? "Cluster \(cl)",
                                                    kind: members.first?.kind ?? .performance, usage: avg,
-                                                   frequencyMHz: f, maxFrequencyMHz: clusterMax[cl], powerW: watts[ch]))
+                                                   frequencyMHz: rv.clusterFreq[cl], maxFrequencyMHz: rv.clusterMax[cl],
+                                                   powerW: rv.clusterPower[cl]))
         }
 
         if !cores.isEmpty {
@@ -141,7 +175,7 @@ final class ChipSampler {
             snap.cpu.system = cores.map { $0.system }.reduce(0, +) / Double(cores.count)
             snap.cpu.idle = max(0, 1 - snap.cpu.user - snap.cpu.system)
         }
-        snap.cpu.powerW = watts["CPU Energy"]
+        snap.cpu.powerW = rv.cpuPower
 
         var la = [Double](repeating: 0, count: 3)
         getloadavg(&la, 3)
@@ -149,7 +183,7 @@ final class ChipSampler {
         if let b = bootTime { snap.cpu.uptime = max(0, Date().timeIntervalSince(b)) }
         let p = procs.sample(detailed: detailed)
         snap.cpu.processCount = p.processes
-        if detailed { snap.cpu.threadCount = p.threads }
+        snap.cpu.threadCount = p.threads
         snap.cpu.topProcesses = p.top
 
         let g = gpuReader.stats()
@@ -161,17 +195,9 @@ final class ChipSampler {
         snap.gpu.memoryInUseBytes = g.inUse
         snap.gpu.memoryAllocatedBytes = g.alloc
         snap.gpu.maxFrequencyMHz = gpuTable?.max()
-        snap.gpu.frequencyMHz = FrequencyMath.gpuActive(gpuStates, table: gpuTable)
-        // "GPU Energy" (nJ) is preferred; "GPU0" (mJ) is a coarser fallback.
-        snap.gpu.powerW = watts["GPU Energy"] ?? watts["GPU0"]
-
-        var comps: [String: Double] = [:]
-        let skip: Set<String> = ["GPU0", "GPU Energy", "CPU Energy"]
-        for (name, w) in watts where w > 0.01 && !skip.contains(name) {
-            guard let f = Self.friendly.first(where: { name.hasPrefix($0.0) })?.1 else { continue }
-            comps[f, default: 0] += w
-        }
-        snap.components = comps.map { PowerComponent(name: $0.key, watts: $0.value) }.sorted { $0.watts > $1.watts }
+        snap.gpu.frequencyMHz = rv.gpuFreq
+        snap.gpu.powerW = rv.gpuPower
+        snap.components = rv.components
         return snap
     }
 }

@@ -55,10 +55,11 @@ struct MonitorState {
     var memory = MemorySnapshot()
     var network = NetworkSnapshot()
     var sensors = SensorsSnapshot()
-    var cpuHistory = History(), cpuUserHistory = History(), cpuSystemHistory = History()
-    var gpuHistory = History(), memoryPressureHistory = History(), memoryUsedHistory = History()
+    var cpuUserHistory = History(), cpuSystemHistory = History()
+    var gpuHistory = History(), memoryPressureHistory = History()
     var netDownHistory = History(), netUpHistory = History()
     var cpuTempHistory = History(), gpuTempHistory = History(), systemPowerHistory = History()
+    var pinnedHistory = History()
     var unit: TemperatureUnit = .celsius
     var fetchPublicIP = false
     var pinnedSensorIDs: [String] = []
@@ -67,10 +68,11 @@ struct MonitorState {
     @MainActor init() {}
     @MainActor init(_ m: SystemMonitor, _ s: AppSettings) {
         chip = m.chip; memory = m.memory; network = m.network; sensors = m.sensors
-        cpuHistory = m.cpuHistory; cpuUserHistory = m.cpuUserHistory; cpuSystemHistory = m.cpuSystemHistory
-        gpuHistory = m.gpuHistory; memoryPressureHistory = m.memoryPressureHistory; memoryUsedHistory = m.memoryUsedHistory
+        cpuUserHistory = m.cpuUserHistory; cpuSystemHistory = m.cpuSystemHistory
+        gpuHistory = m.gpuHistory; memoryPressureHistory = m.memoryPressureHistory
         netDownHistory = m.netDownHistory; netUpHistory = m.netUpHistory
         cpuTempHistory = m.cpuTempHistory; gpuTempHistory = m.gpuTempHistory; systemPowerHistory = m.systemPowerHistory
+        pinnedHistory = m.pinnedHistory
         unit = s.temperatureUnit; fetchPublicIP = s.fetchPublicIP
         pinnedSensorIDs = s.menuBarSensorIDs; style = s.menuBarStyle
     }
