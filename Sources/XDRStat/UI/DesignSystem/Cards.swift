@@ -12,8 +12,8 @@ struct Card<Content: View>: View {
         VStack(alignment: .leading, spacing: spacing) { content }
             .padding(.horizontal, hPad).padding(.vertical, vPad)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.cardFill))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.cardStroke, lineWidth: 0.5))
+            .background(RoundedRectangle(cornerRadius: Theme.cardCornerRadius, style: .continuous).fill(Theme.cardFill))
+            .overlay(RoundedRectangle(cornerRadius: Theme.cardCornerRadius, style: .continuous).strokeBorder(Theme.cardStroke, lineWidth: 0.5))
     }
 }
 
@@ -23,7 +23,7 @@ struct CardTitle<Trailing: View>: View {
     @ViewBuilder var trailing: Trailing
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(title.uppercased()).font(.system(size: 13, weight: .regular)).foregroundStyle(Theme.accent)
+            Text(title.uppercased()).font(.system(size: 13, weight: .regular)).foregroundStyle(Theme.title)
             Spacer(minLength: 6)
             trailing
         }

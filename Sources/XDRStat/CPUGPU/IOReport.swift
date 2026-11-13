@@ -43,7 +43,9 @@ final class IOReportSession {
         let merged = NSMutableDictionary(dictionary: e as NSDictionary)
         guard let arr = merged["IOReportChannels"] as? NSArray else { return nil }
         let all = NSMutableArray(array: arr)
-        let extra: [(String, String)] = [("CPU Stats", "CPU Core Performance States"), ("GPU Stats", "GPU Performance States")]
+        // "PMP0 / Energy" holds live per-cluster power histograms; see ChipSampler for why they're needed.
+        let extra: [(String, String)] = [("CPU Stats", "CPU Core Performance States"), ("GPU Stats", "GPU Performance States"),
+                                         ("PMP0", "Energy")]
         for (g, s) in extra {
             if let d = IOReportCopyChannelsInGroup(g as CFString, s as CFString, 0, 0, 0)?.takeRetainedValue() as NSDictionary?,
                let a = d["IOReportChannels"] as? [Any] { all.addObjects(from: a) }

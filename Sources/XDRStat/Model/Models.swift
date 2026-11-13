@@ -51,6 +51,7 @@ struct CPUSnapshot: Sendable, Equatable {
     var idle: Double = 1
     var usage: Double { min(1, user + system) }
     var powerW: Double?         // whole CPU complex
+    var powerIsEstimate = false // from power histograms, because the exact energy counters are stale
     var loadAverage: [Double] = [0, 0, 0]
     var uptime: TimeInterval = 0
     var processCount: Int = 0

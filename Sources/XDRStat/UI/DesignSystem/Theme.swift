@@ -4,6 +4,9 @@ import AppKit
 enum Theme {
     static let panelWidth: CGFloat = 320
     static let pad: CGFloat = 8     // outer padding and gap between cards
+    /// Liquid Glass shapes are concentric: a card's corner radius is the panel's minus the padding between them.
+    static let panelCornerRadius: CGFloat = 20
+    static let cardCornerRadius: CGFloat = panelCornerRadius - pad
 
     static let user = Color(red: 0.25, green: 0.52, blue: 1.0)
     static let system = Color(red: 1.0, green: 0.36, blue: 0.34)
@@ -16,13 +19,23 @@ enum Theme {
     static let warn = Color(red: 1.0, green: 0.78, blue: 0.18)
     static let bad = Color(red: 1.0, green: 0.30, blue: 0.28)
     static let accent = Color(red: 0.25, green: 0.52, blue: 1.0)
+    /// Coloured text and glyphs use system colours, not the fixed brand RGB used for graph fills: macOS
+    /// adapts system colours for legibility on Liquid Glass, where a fixed mid-blue all but disappears.
+    static let title = Color.blue
+    static let positive = Color.green
     // iStat-style palette
     static let pink = Color(red: 0.93, green: 0.36, blue: 0.62)
     static let amber = Color(red: 0.98, green: 0.78, blue: 0.22)
     static let ringTrack = Color.primary.opacity(0.20)
-    static let cardFill = Color.primary.opacity(0.07)
-    static let cardStroke = Color.primary.opacity(0.13)
-    static let selfRed = Color(red: 0.96, green: 0.36, blue: 0.34)
+    /// Cards are the content layer on top of the glass panel: a plate substantial enough that charts and
+    /// small text stay legible whatever wallpaper shows through the glass around them.
+    static let cardFill = dynamic(light: NSColor.white.withAlphaComponent(0.55), dark: NSColor.black.withAlphaComponent(0.24))
+    static let cardStroke = dynamic(light: NSColor.black.withAlphaComponent(0.06), dark: NSColor.white.withAlphaComponent(0.10))
+
+    /// A colour that differs between the light and dark appearance.
+    static func dynamic(light: NSColor, dark: NSColor) -> Color {
+        Color(nsColor: NSColor(name: nil) { $0.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light })
+    }
 
     static func kind(_ k: CoreKind) -> Color { k == .superCore ? superCore : perfCore }
 

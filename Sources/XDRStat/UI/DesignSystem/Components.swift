@@ -160,7 +160,7 @@ struct ProcessRow: View {
             Spacer(minLength: 6)
             ValueLabel(value)
         }
-        .foregroundStyle(isSelf ? Theme.selfRed : Color.primary)
+        .foregroundStyle(isSelf ? Color.secondary : Color.primary)
         .hoverHighlight()
         .help("\(proc.name) (pid \(proc.pid))")
     }
@@ -181,8 +181,8 @@ struct CopyValue: View {
         } label: {
             HStack(spacing: 4) {
                 if copied {
-                    Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.good)
-                    Text("Copied").font(.system(size: 11.5, weight: .medium)).foregroundStyle(Theme.good)
+                    Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.positive)
+                    Text("Copied").font(.system(size: 11.5, weight: .medium)).foregroundStyle(Theme.positive)
                 } else {
                     Text(text).font(.system(size: 12.5).monospacedDigit()).lineLimit(1).minimumScaleFactor(0.75).truncationMode(.middle)
                         .underline(hovering, color: .secondary)

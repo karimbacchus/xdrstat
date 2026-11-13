@@ -133,7 +133,7 @@ struct AboutSettings: View {
         case .checking:
             HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Checking…").foregroundStyle(.secondary) }
         case .upToDate:
-            Label("XDRStat is up to date.", systemImage: "checkmark.circle.fill").foregroundStyle(Theme.good)
+            Label("XDRStat is up to date.", systemImage: "checkmark.circle.fill").foregroundStyle(Theme.positive)
         case .available(let version, let page):
             HStack(spacing: 10) {
                 Text("Version \(version) is available.")

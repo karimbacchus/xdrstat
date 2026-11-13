@@ -88,9 +88,18 @@ import ImageIO
         SnapshotOptions.realIcons = true
         let st = MockData.state
         func shot<V: View>(_ v: V, _ name: String) {
+            // Glass can't be rendered offscreen, so stand in for it: a dimmed wallpaper-like gradient
+            // behind the panel, in the panel's real shape.
+            let glass = ZStack {
+                LinearGradient(colors: [Color(red: 0.16, green: 0.30, blue: 0.52), Color(red: 0.30, green: 0.20, blue: 0.55),
+                                        Color(red: 0.50, green: 0.18, blue: 0.40)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                Color.black.opacity(0.28)
+            }
+            let shape = RoundedRectangle(cornerRadius: Theme.panelCornerRadius, style: .continuous)
             appKitShot(v.environment(\.isSnapshot, true)
-                .background(Color(red: 0.13, green: 0.135, blue: 0.15))
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous)), name, dir, scale: 3)
+                .background(glass)
+                .clipShape(shape)
+                .overlay(shape.strokeBorder(Color.white.opacity(0.22), lineWidth: 0.75)), name, dir, scale: 3)
         }
         shot(CPUPanelContent(state: st), "panel-cpu")
         shot(MemoryPanelContent(state: st), "panel-memory")

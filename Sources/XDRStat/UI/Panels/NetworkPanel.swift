@@ -71,7 +71,7 @@ struct NetworkPanelContent: View {
     private func wifi(_ w: WiFiInfo) -> some View {
         Card(spacing: 4) {
             HStack(spacing: 8) {
-                Image(systemName: "wifi").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.accent)
+                Image(systemName: "wifi").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.title)
                 if let s = w.ssid { Text(s).font(.system(size: 13)).lineLimit(1) }
                 else {
                     Text("Wi‑Fi").font(.system(size: 13))
@@ -102,7 +102,7 @@ struct NetworkPanelContent: View {
                 if let ip = n.publicIPv4 { CopyValue(text: ip) } else { Text("Looking up…").font(.system(size: 12.5)).foregroundStyle(.secondary) }
             } else {
                 Button { PanelActions.openSettings() } label: {
-                    Text("Off — enable in Settings").font(.system(size: 12.5)).foregroundStyle(Theme.accent)
+                    Text("Off — enable in Settings").font(.system(size: 12.5)).foregroundStyle(Theme.title)
                 }.buttonStyle(.plain)
             }
         }
@@ -189,23 +189,23 @@ struct InterfaceRow: View {
     var icon: String
     var body: some View {
         HStack(spacing: 9) {
-            Image(systemName: icon).font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.accent).frame(width: 18)
+            Image(systemName: icon).font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.title).frame(width: 18)
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 5) {
                     Text(info.displayName).font(.system(size: 12.5)).lineLimit(1)
                     if info.isPrimary {
                         Text("PRIMARY").font(.system(size: 8, weight: .bold)).tracking(0.5)
                             .padding(.horizontal, 4).padding(.vertical, 1.5)
-                            .background(Capsule().fill(Theme.good.opacity(0.2))).foregroundStyle(Theme.good)
+                            .background(Capsule().fill(Theme.positive.opacity(0.2))).foregroundStyle(Theme.positive)
                     }
                 }
                 Text(info.bsdName + (info.macAddress.flatMap { $0 == "02:00:00:00:00:00" ? nil : " · \($0)" } ?? "")).font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 4)
             VStack(alignment: .trailing, spacing: 1) {
-                HStack(spacing: 4) { Image(systemName: "arrow.up").font(.system(size: 8, weight: .bold)).foregroundStyle(Theme.pink)
+                HStack(spacing: 4) { Image(systemName: "arrow.up").font(.system(size: 8, weight: .bold)).foregroundStyle(Color.pink)
                     ValueLabel(Fmt.rateParts(info.upBytesPerSec), size: 11.5) }
-                HStack(spacing: 4) { Image(systemName: "arrow.down").font(.system(size: 8, weight: .bold)).foregroundStyle(Theme.accent)
+                HStack(spacing: 4) { Image(systemName: "arrow.down").font(.system(size: 8, weight: .bold)).foregroundStyle(Theme.title)
                     ValueLabel(Fmt.rateParts(info.downBytesPerSec), size: 11.5) }
             }
         }

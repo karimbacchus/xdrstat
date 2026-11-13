@@ -41,6 +41,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { SnapshotRunner.run(into: dir) }
             return
         }
+        // One copy only: a second one (say, a build next to the installed app) would double every menu bar item.
+        if let id = Bundle.main.bundleIdentifier,
+           NSRunningApplication.runningApplications(withBundleIdentifier: id).contains(where: { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }) {
+            NSApp.terminate(nil)
+            return
+        }
+        // QA: XDRSTAT_APPEARANCE=light|dark overrides the system appearance for this run.
+        switch ProcessInfo.processInfo.environment["XDRSTAT_APPEARANCE"] {
+        case "light": NSApp.appearance = NSAppearance(named: .aqua)
+        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+        default: break
+        }
         statusBar = StatusBarController()
         // QA: XDRSTAT_OPEN="cpu,close,sensors" runs those steps 4 s apart.
         if let steps = ProcessInfo.processInfo.environment["XDRSTAT_OPEN"]?.split(separator: ",") {

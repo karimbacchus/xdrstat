@@ -14,6 +14,15 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build-release/release/XDRStat "$APP/Contents/MacOS/XDRStat"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+cp Resources/Assets.car "$APP/Contents/Resources/Assets.car"   # Liquid Glass icon (scripts/make-icon.sh)
+
+# macOS only gives an app the current system design (Liquid Glass) if its binary is stamped with a
+# current SDK version. Package.swift arranges that; fail loudly if a toolchain change ever undoes it.
+SDK_STAMP=$(vtool -show-build "$APP/Contents/MacOS/XDRStat" | awk '/ sdk / {print $2}')
+if [[ "${SDK_STAMP%%.*}" -lt 26 ]]; then
+  echo "Binary is stamped with SDK $SDK_STAMP (expected 26 or later): it would run without Liquid Glass." >&2
+  exit 1
+fi
 
 if [[ -z "${SIGN_IDENTITY:-}" ]]; then
   SIGN_IDENTITY=$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)

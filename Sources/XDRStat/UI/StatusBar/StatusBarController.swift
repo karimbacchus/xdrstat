@@ -131,6 +131,7 @@ final class StatusBarController: NSObject {
     /// (`XDRSTAT_OPEN=close` closes it again).
     func debugOpen(_ name: String) {
         if name == "close" { closePanel(); return }
+        if name == "settings" { showSettings(); return }
         let names = ["cpu", "memory", "network", "sensors"]
         guard let i = names.firstIndex(of: name), let k = Kind(rawValue: i), let b = items[k]?.button else { return }
         itemClicked(b)
@@ -174,7 +175,12 @@ final class StatusBarController: NSObject {
         // whose own action toggles the panel...
         if let m = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown], handler: { [weak self] e in
             guard let self, let w = e.window else { return e }
-            if w !== self.panel, !w.className.contains("StatusBar") { self.closePanel() }
+            if let p = self.panel, w === p {
+                // The panel's window extends past the glass to hold its shadow; a click out there is outside.
+                if !p.panelFrame.contains(NSEvent.mouseLocation) { self.closePanel() }
+            } else if !w.className.contains("StatusBar") {
+                self.closePanel()
+            }
             return e
         }) { eventMonitors.append(m) }
         // ...and on Escape.
@@ -213,11 +219,16 @@ final class StatusBarController: NSObject {
     }
 }
 
-/// Borderless, non-activating dropdown with menu vibrancy that sizes itself to its SwiftUI content
-/// and stays pinned under its status item as the content grows or shrinks.
+/// Borderless, non-activating dropdown that sizes itself to its SwiftUI content and stays pinned under its
+/// status item as the content grows or shrinks. Backed by Liquid Glass on macOS 26 and later, like the
+/// system's own menu bar panels, and by the menu vibrancy material before that.
 final class DropdownPanel: NSPanel {
     var anchor: NSRect = .zero
     private let host: SizingHostingView
+    private let root = ShadowRingView()
+
+    /// The window is larger than the visible panel by this much on every side, to leave room for the shadow.
+    static let shadowMargin: CGFloat = 36
 
     init(content: AnyView) {
         host = SizingHostingView(rootView: content)
@@ -225,38 +236,55 @@ final class DropdownPanel: NSPanel {
                    styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isFloatingPanel = true
         level = .popUpMenu
-        hasShadow = true
+        // The standard window shadow can't follow a glass shape (it outlines the window's rectangle),
+        // so the panel draws its own soft shadow around the glass instead.
+        hasShadow = false
         isOpaque = false
         backgroundColor = .clear
         hidesOnDeactivate = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         animationBehavior = .utilityWindow
 
-        let effect = NSVisualEffectView()
-        effect.material = .menu
-        effect.blendingMode = .behindWindow
-        effect.state = .active
-        effect.wantsLayer = true
-        effect.layer?.cornerRadius = 12
-        effect.layer?.cornerCurve = .continuous
-        effect.layer?.masksToBounds = true
-        effect.layer?.borderWidth = 0.5
-        effect.layer?.borderColor = NSColor.white.withAlphaComponent(0.18).cgColor
-
         host.translatesAutoresizingMaskIntoConstraints = false
-        effect.addSubview(host)
+        let backing: NSView
+        if #available(macOS 26.0, *) {
+            let glass = NSGlassEffectView()
+            glass.cornerRadius = Theme.panelCornerRadius
+            glass.contentView = host
+            backing = glass
+        } else {
+            let effect = NSVisualEffectView()
+            effect.material = .menu
+            effect.blendingMode = .behindWindow
+            effect.state = .active
+            effect.wantsLayer = true
+            effect.layer?.cornerRadius = Theme.panelCornerRadius
+            effect.layer?.cornerCurve = .continuous
+            effect.layer?.masksToBounds = true
+            effect.layer?.borderWidth = 0.5
+            effect.layer?.borderColor = NSColor.white.withAlphaComponent(0.18).cgColor
+            effect.addSubview(host)
+            backing = effect
+        }
         NSLayoutConstraint.activate([
-            host.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
-            host.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
-            host.topAnchor.constraint(equalTo: effect.topAnchor),
-            host.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
+            host.leadingAnchor.constraint(equalTo: backing.leadingAnchor),
+            host.trailingAnchor.constraint(equalTo: backing.trailingAnchor),
+            host.topAnchor.constraint(equalTo: backing.topAnchor),
+            host.bottomAnchor.constraint(equalTo: backing.bottomAnchor),
         ])
-        contentView = effect
+        root.frame = NSRect(x: 0, y: 0, width: 320, height: 400)
+        backing.frame = root.bounds.insetBy(dx: Self.shadowMargin, dy: Self.shadowMargin)
+        backing.autoresizingMask = [.width, .height]
+        root.addSubview(backing)
+        contentView = root
         host.onSizeChange = { [weak self] in self?.reposition() }
     }
 
     override var canBecomeKey: Bool { true }    // lets the Sensors search field take typing
     override var canBecomeMain: Bool { false }
+
+    /// The visible panel (the glass), in screen coordinates.
+    var panelFrame: NSRect { frame.insetBy(dx: Self.shadowMargin, dy: Self.shadowMargin) }
 
     /// Size to content (clamped to the screen) and hang the panel just under the status item.
     func reposition() {
@@ -267,8 +295,45 @@ final class DropdownPanel: NSPanel {
         var x = anchor.midX - size.width / 2
         x = min(max(x, vis.minX + 6), vis.maxX - size.width - 6)
         let top = anchor.minY - 5
-        let frame = NSRect(x: x, y: top - size.height, width: size.width, height: size.height)
+        let panel = NSRect(x: x, y: top - size.height, width: size.width, height: size.height)
+        let frame = panel.insetBy(dx: -Self.shadowMargin, dy: -Self.shadowMargin)
         if frame != self.frame { setFrame(frame, display: true) }
+    }
+}
+
+/// Draws a soft drop shadow around an inset rounded rectangle and nothing inside it, so the shadow never
+/// shows through the translucent panel it surrounds.
+private final class ShadowRingView: NSView {
+    private let shadowLayer = CALayer()
+    private let ring = CAShapeLayer()
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        shadowLayer.shadowColor = NSColor.black.cgColor
+        shadowLayer.shadowOpacity = 0.30
+        shadowLayer.shadowRadius = 18
+        shadowLayer.shadowOffset = CGSize(width: 0, height: -8)
+        ring.fillRule = .evenOdd
+        shadowLayer.mask = ring
+        layer?.addSublayer(shadowLayer)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func layout() {
+        super.layout()
+        let m = DropdownPanel.shadowMargin, r = Theme.panelCornerRadius
+        let hole = CGPath(roundedRect: bounds.insetBy(dx: m, dy: m), cornerWidth: r, cornerHeight: r, transform: nil)
+        let outside = CGMutablePath()
+        outside.addRect(bounds)
+        outside.addPath(hole)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)   // follow the window's frame exactly, no implicit animation
+        shadowLayer.frame = bounds
+        shadowLayer.shadowPath = hole
+        ring.frame = bounds
+        ring.path = outside
+        CATransaction.commit()
     }
 }
 

@@ -1,0 +1,43 @@
+{
+  "fill" : {
+    "linear-gradient" : [
+      "srgb:0.86000,0.87000,0.89000,1.00000",
+      "srgb:0.60000,0.62000,0.66000,1.00000"
+    ]
+  },
+  "fill-specializations" : [
+    {
+      "appearance" : "dark",
+      "value" : {
+        "linear-gradient" : [
+          "srgb:0.20000,0.21000,0.24000,1.00000",
+          "srgb:0.07000,0.08000,0.10000,1.00000"
+        ]
+      }
+    }
+  ],
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "glass" : false,
+          "image-name" : "gauge.png",
+          "name" : "gauge"
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : false,
+        "value" : 0.5
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : [
+      "macOS"
+    ]
+  }
+}

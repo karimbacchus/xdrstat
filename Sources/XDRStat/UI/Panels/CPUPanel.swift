@@ -191,6 +191,10 @@ struct CPUPanelContent: View {
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 18), GridItem(.flexible())], spacing: 3) {
                     ForEach(segs) { s in LegendRow(color: s.color, name: s.id, value: ValueLabel(Fmt.wattsParts(s.value))) }
                 }
+                if cpu.powerIsEstimate {
+                    Text("CPU is a live estimate. macOS is refreshing its exact power counters only every few minutes, so the other parts are averages.")
+                        .font(.system(size: 10.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }

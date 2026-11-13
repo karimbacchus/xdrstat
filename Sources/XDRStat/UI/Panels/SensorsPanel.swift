@@ -56,7 +56,7 @@ struct SensorsPanelContent: View {
 
     private func tile(_ title: String, _ value: String?, _ history: [Double], _ color: Color) -> some View {
         Card(spacing: 4, vPad: 9) {
-            Text(title.uppercased()).font(.system(size: 11.5)).foregroundStyle(Theme.accent)
+            Text(title.uppercased()).font(.system(size: 11.5)).foregroundStyle(Theme.title)
             Text(value ?? "—").font(.system(size: 20, weight: .medium)).monospacedDigit()
                 .contentTransition(.numericText()).lineLimit(1).minimumScaleFactor(0.7)
             Sparkline(values: history, color: color).frame(height: 22)
@@ -65,7 +65,7 @@ struct SensorsPanelContent: View {
 
     private func fanTile(_ rpm: Double?) -> some View {
         Card(spacing: 4, vPad: 9) {
-            Text("FANS").font(.system(size: 11.5)).foregroundStyle(Theme.accent)
+            Text("FANS").font(.system(size: 11.5)).foregroundStyle(Theme.title)
             Text(rpm.map { Fmt.rpm($0) } ?? "—").font(.system(size: 20, weight: .medium)).monospacedDigit()
                 .lineLimit(1).minimumScaleFactor(0.6)
             VStack(spacing: 4) {
@@ -231,7 +231,7 @@ struct DisclosureRow<Summary: View, Content: View>: View {
                     Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
                         .rotationEffect(.degrees(isOpen ? 90 : 0)).frame(width: 10)
                     if isSection {
-                        Text(title.uppercased()).font(.system(size: 13)).foregroundStyle(Theme.accent)
+                        Text(title.uppercased()).font(.system(size: 13)).foregroundStyle(Theme.title)
                     } else {
                         Text(title).font(.system(size: 12.5))
                     }

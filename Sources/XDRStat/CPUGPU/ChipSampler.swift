@@ -16,12 +16,30 @@ final class ChipSampler {
     private let chipName: String
     private let bootTime: Date?
     private var tick = 0
-    // The Energy Model counters only advance about every other 1 s tick (a tick often reads exactly 0 mJ
-    // on every channel). Joules are therefore accumulated until the sentinel channel moves, and watts are
-    // computed over the full accumulated real time. Separate accumulators for the SoC group and GPU Energy.
-    private struct Acc { var joules: [String: Double] = [:]; var secs = 0.0; var lastWatts: [String: Double] = [:] }
-    private var socAcc = Acc()
-    private var gpuAcc = Acc()
+    // The Energy Model counters (mJ) are refreshed by the kernel on its own schedule: every couple of
+    // seconds at best, and only about every five minutes in some states (seen on mains power, macOS 27.3).
+    // Joules are therefore accumulated until the sentinel channel moves, and watts are the average over
+    // that real window. The first jump is skipped: it covers a window that began before we were watching.
+    private struct EnergyWindow {
+        var joules: [String: Double] = [:]
+        var secs = 0.0
+        var seenFirst = false
+        var watts: [String: Double] = [:]
+        var gap: Double?            // length of the last complete window
+        var sinceUpdate = 0.0
+        /// The averages are recent enough to show as live values.
+        var isLive: Bool { (gap ?? .infinity) <= 6 && sinceUpdate <= 8 }
+
+        mutating func add(elapsed: Double, sentinel: String) {
+            secs += elapsed; sinceUpdate += elapsed
+            guard (joules[sentinel] ?? 0) > 0 else { return }
+            if seenFirst, secs > 0 { watts = joules.mapValues { $0 / secs }; gap = secs }
+            seenFirst = true
+            joules = [:]; secs = 0; sinceUpdate = 0
+        }
+    }
+    private var socAcc = EnergyWindow()
+    private var gpuAcc = EnergyWindow()
 
     /// Everything derived from IOReport (power and frequencies). Only the CPU panel shows these, so
     /// while it's closed they're refreshed every 4th tick and reused in between: still warm when the
@@ -30,6 +48,7 @@ final class ChipSampler {
         var coreFreq: [Int: Double] = [:], corePower: [Int: Double] = [:]
         var clusterFreq: [Int: Double] = [:], clusterMax: [Int: Double] = [:], clusterPower: [Int: Double] = [:]
         var cpuPower: Double?, gpuFreq: Double?, gpuPower: Double?
+        var cpuPowerEstimated = false
         var components: [PowerComponent] = []
     }
     private var reportValues = ReportValues()
@@ -53,7 +72,7 @@ final class ChipSampler {
     // Short names: the CPU panel's power legend is two narrow columns.
     private static let friendly: [(String, String)] = [
         ("ANE", "ANE"), ("DRAM", "DRAM"), ("DISPEXT", "Ext Display"), ("DISP", "Display"),
-        ("FAB", "Fabric"), ("AMCC", "Mem Ctrl"), ("DCS", "DRAM Ctrl"), ("AVE", "Media"),
+        ("FAB", "Fabric"), ("AMCC", "Mem Ctrl"), ("DCS", "DCS"), ("AVE", "Media"),
         ("ISP", "ISP"), ("MSR", "Scaler"), ("AFR", "AFR"), ("PCIe Port", "PCIe"), ("apciec", "PCIe")
     ]
 
@@ -80,6 +99,7 @@ final class ChipSampler {
         guard let delta = report?.sampleDelta() else { return }
         var cpuStates: [String: [(name: String, residency: Int64)]] = [:]
         var gpuStates: [(name: String, residency: Int64)] = []
+        var powerBins: [String: [(name: String, residency: Int64)]] = [:]
         for c in delta.channels {
             if c.group == "Energy Model" {
                 let j = IOReportSession.joules(c)
@@ -89,20 +109,26 @@ final class ChipSampler {
                 cpuStates[c.name] = c.states
             } else if c.group == "GPU Stats", c.name == "GPUPH" {
                 gpuStates = c.states
+            } else if c.group == "PMP0" {
+                powerBins[c.name] = c.states
             }
         }
-        for which in 0..<2 {
-            var acc = which == 0 ? socAcc : gpuAcc
-            acc.secs += delta.elapsed
-            let sentinel = which == 0 ? "CPU Energy" : "GPU Energy"
-            // Report once the sentinel moved, or after 10 s of genuinely idle (zero) counters.
-            if (acc.joules[sentinel] ?? 0) > 0 || acc.secs > 10 {
-                acc.lastWatts = acc.joules.mapValues { $0 / acc.secs }
-                acc.joules = [:]; acc.secs = 0
+        socAcc.add(elapsed: delta.elapsed, sentinel: "CPU Energy")
+        gpuAcc.add(elapsed: delta.elapsed, sentinel: "GPU Energy")
+        var watts = socAcc.watts.merging(gpuAcc.watts) { a, _ in a }
+        // When the exact CPU counters are stale, estimate each cluster live from the power-management
+        // processor's power histogram for it (2 W bins, sampled ~2 kHz). Everything else in the SoC
+        // breakdown then shows its average over the last counter window.
+        let estimated = !socAcc.isLive
+        if estimated {
+            var total = 0.0, any = false
+            for (bins, channel) in [("PACC", "PCPU"), ("MACC0", "MCPU0"), ("MACC1", "MCPU1")] {
+                guard let w = Self.meanPower(powerBins[bins]) else { watts[channel] = nil; continue }
+                watts[channel] = w; total += w; any = true
             }
-            if which == 0 { socAcc = acc } else { gpuAcc = acc }
+            watts["CPU Energy"] = any ? total : nil
+            for k in watts.keys where k.hasPrefix("PACC_") || (k.hasPrefix("MCPU") && k.contains("_")) { watts[k] = nil }   // no per-core split
         }
-        let watts = socAcc.lastWatts.merging(gpuAcc.lastWatts) { a, _ in a }
 
         var v = ReportValues()
         var tableCache: [Int: [Double]?] = [:]
@@ -140,7 +166,24 @@ final class ChipSampler {
             comps[f, default: 0] += w
         }
         v.components = comps.map { PowerComponent(name: $0.key, watts: $0.value) }.sorted { $0.watts > $1.watts }
+        v.cpuPowerEstimated = estimated && v.cpuPower != nil
         reportValues = v
+    }
+
+    /// Mean of a power histogram whose states are labelled with each bin's upper bound ("   2W", "   4W", …).
+    /// Idle samples all land in the lowest bin, whose true mean is far below its midpoint, so that bin is
+    /// weighted at 15% of its width (about 0.3 W for a CPU cluster's 2 W bin).
+    private static func meanPower(_ bins: [(name: String, residency: Int64)]?) -> Double? {
+        guard let bins, !bins.isEmpty else { return nil }
+        var sum = 0.0, n = 0.0
+        for (i, b) in bins.enumerated() where b.residency > 0 {
+            guard let upper = Double(b.name.trimmingCharacters(in: .whitespaces).dropLast()), upper > 0 else { continue }
+            let width = upper / Double(i + 1)
+            let r = Double(b.residency)
+            sum += r * (i == 0 ? width * 0.15 : upper - width / 2)
+            n += r
+        }
+        return n > 0 ? sum / n : nil
     }
 
     private func sampleImpl(detailed: Bool) -> ChipSnapshot {
@@ -176,6 +219,7 @@ final class ChipSampler {
             snap.cpu.idle = max(0, 1 - snap.cpu.user - snap.cpu.system)
         }
         snap.cpu.powerW = rv.cpuPower
+        snap.cpu.powerIsEstimate = rv.cpuPowerEstimated
 
         var la = [Double](repeating: 0, count: 3)
         getloadavg(&la, 3)
