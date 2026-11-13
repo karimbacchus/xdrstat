@@ -28,7 +28,7 @@ struct SensorsPanelContent: View {
     private var searching: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty }
 
     var body: some View {
-        PanelFrame(maxHeight: 600) {
+        PanelFrame {
             summary
             search
             if !s.fans.isEmpty && !searching { fans }

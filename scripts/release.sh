@@ -60,6 +60,6 @@ echo "Ready: $DMG"
 if (( PUBLISH )); then
   # --target pins the tag to the exact commit that was built (not whatever origin's HEAD is by now).
   gh release create "v$VERSION" "$DMG" --repo karimbacchus/xdrstat --target "$COMMIT" \
-    --title "XDRStat $VERSION" --notes "Signed with Developer ID and notarized by Apple. Requires macOS 15+ on Apple Silicon." --latest
+    --title "XDRStat $VERSION" --notes "Signed with Developer ID and notarized by Apple. Requires macOS 27 or later on Apple Silicon." --latest
   echo "Published: https://github.com/karimbacchus/xdrstat/releases/tag/v$VERSION"
 fi

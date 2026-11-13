@@ -27,10 +27,15 @@ final class ChipSampler {
         var watts: [String: Double] = [:]
         var gap: Double?            // length of the last complete window
         var sinceUpdate = 0.0
-        /// The averages are recent enough to show as live values.
-        var isLive: Bool { (gap ?? .infinity) <= 6 && sinceUpdate <= 8 }
+        var lastElapsed = 0.0       // most recent elapsed passed to add(); the refresh period
+        /// The averages are recent enough to show as live values: the last complete window was no longer
+        /// than about two refresh periods (so a slow sampler isn't judged stale) and one is not overdue.
+        var isLive: Bool {
+            (gap ?? .infinity) <= max(6, 2.5 * lastElapsed) && sinceUpdate <= max(8, 3 * lastElapsed)
+        }
 
         mutating func add(elapsed: Double, sentinel: String) {
+            lastElapsed = elapsed
             secs += elapsed; sinceUpdate += elapsed
             guard (joules[sentinel] ?? 0) > 0 else { return }
             if seenFirst, secs > 0 { watts = joules.mapValues { $0 / secs }; gap = secs }

@@ -1,7 +1,7 @@
 # XDRStat
 
 An iStat Menus–style menu bar monitor built for the 2026 MacBook Pro (M5 Pro / Max, Mac17,x).
-Four menu bar items (CPU & GPU, Memory, Network, Sensors), each opening a detail panel. No root needed.
+Four menu bar items (CPU & GPU, Memory, Network, Sensors), each opening a detail panel. No root needed. Requires macOS 27 or later.
 
 ## Build & run
 
@@ -42,14 +42,14 @@ XDRSTAT_OPEN=cpu,close,sensors .build/debug/XDRStat                         # op
 
 ## App icon
 
-`Resources/AppIcon.icon` is an Icon Composer document (Liquid Glass on macOS 26+): a fill plus the gauge
+`Resources/AppIcon.icon` is an Icon Composer document (Liquid Glass): a fill plus the gauge
 cut out of the original art (`Resources/AppIcon/`). `scripts/make-icon.sh` recompiles it into
 `Resources/Assets.car` and the fallback `Resources/AppIcon.icns`; that needs Xcode, a normal build doesn't.
 
 ## Notes
 - Liquid Glass: macOS only gives an app the current design if its binary is stamped with a current SDK
   version, and SwiftPM stamps the deployment target instead. `Package.swift` works around that and
-  `scripts/build-app.sh` checks it. Panels sit on an `NSGlassEffectView` (macOS 26+).
+  `scripts/build-app.sh` checks it. Panels sit on an `NSGlassEffectView`.
 - CPU power: macOS refreshes the exact energy counters on its own schedule (sometimes only every few
   minutes). When they're stale, CPU power is estimated live from the `PMP0 / Energy` power histograms.
 - Menu bar labels are drawn with Core Graphics (`UI/MenuBar/MenuBarLabel.swift`), not SwiftUI's

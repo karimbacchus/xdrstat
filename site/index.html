@@ -240,7 +240,7 @@
         <div class="fine">
           <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12l5 5L20 7"/></svg>Free</span>
           <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12l5 5L20 7"/></svg>Signed &amp; notarized by Apple</span>
-          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12l5 5L20 7"/></svg>macOS 15 or later</span>
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12l5 5L20 7"/></svg>macOS 27 or later</span>
           <span class="dl-version"></span>
         </div>
       </div>
@@ -391,7 +391,7 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-5-5m5 5l5-5M4 21h16"/></svg>
         Download XDRStat
       </a>
-      <div class="meta"><span class="dl-meta">Signed &amp; notarized · Apple Silicon · macOS 15+</span> · <a href="https://github.com/karimbacchus/xdrstat/releases">All releases</a></div>
+      <div class="meta"><span class="dl-meta">Signed &amp; notarized · Apple Silicon · macOS 27+</span> · <a href="https://github.com/karimbacchus/xdrstat/releases">All releases</a></div>
       <div class="steps">
         <div><b>1. Open the disk image</b>Double-click <code>XDRStat.dmg</code> once it downloads.</div>
         <div><b>2. Drag to Applications</b>Drop XDRStat onto the Applications shortcut.</div>
@@ -483,7 +483,7 @@
       const date = new Date(rel.published_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
       if (v) document.querySelector('.dl-version').textContent = 'Version ' + v;
       const size = asset ? ' · ' + (asset.size / 1e6).toFixed(1) + ' MB' : '';
-      document.querySelector('.dl-meta').textContent = `Version ${v}${size} · ${date} · Signed & notarized · macOS 15+`;
+      document.querySelector('.dl-meta').textContent = `Version ${v}${size} · ${date} · Signed & notarized · macOS 27+`;
     })
     .catch(() => {});
 </script>

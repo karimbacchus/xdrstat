@@ -214,14 +214,16 @@ final class StatusBarController: NSObject {
             w.center()
             settingsWindow = w
         }
-        NSApp.activate()
+        // Accessory app with non-activating panels: plain activate() can be refused, this one is forced.
+        NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)
+        settingsWindow?.orderFrontRegardless()
     }
 }
 
 /// Borderless, non-activating dropdown that sizes itself to its SwiftUI content and stays pinned under its
-/// status item as the content grows or shrinks. Backed by Liquid Glass on macOS 26 and later, like the
-/// system's own menu bar panels, and by the menu vibrancy material before that.
+/// status item as the content grows or shrinks. Backed by Liquid Glass, like the system's own menu
+/// bar panels.
 final class DropdownPanel: NSPanel {
     var anchor: NSRect = .zero
     private let host: SizingHostingView
@@ -246,26 +248,9 @@ final class DropdownPanel: NSPanel {
         animationBehavior = .utilityWindow
 
         host.translatesAutoresizingMaskIntoConstraints = false
-        let backing: NSView
-        if #available(macOS 26.0, *) {
-            let glass = NSGlassEffectView()
-            glass.cornerRadius = Theme.panelCornerRadius
-            glass.contentView = host
-            backing = glass
-        } else {
-            let effect = NSVisualEffectView()
-            effect.material = .menu
-            effect.blendingMode = .behindWindow
-            effect.state = .active
-            effect.wantsLayer = true
-            effect.layer?.cornerRadius = Theme.panelCornerRadius
-            effect.layer?.cornerCurve = .continuous
-            effect.layer?.masksToBounds = true
-            effect.layer?.borderWidth = 0.5
-            effect.layer?.borderColor = NSColor.white.withAlphaComponent(0.18).cgColor
-            effect.addSubview(host)
-            backing = effect
-        }
+        let backing = NSGlassEffectView()
+        backing.cornerRadius = Theme.panelCornerRadius
+        backing.contentView = host
         NSLayoutConstraint.activate([
             host.leadingAnchor.constraint(equalTo: backing.leadingAnchor),
             host.trailingAnchor.constraint(equalTo: backing.trailingAnchor),

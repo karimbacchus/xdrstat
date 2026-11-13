@@ -3,10 +3,10 @@ import Foundation
 import PackageDescription
 
 // SwiftPM hands the SDK to clang's linker driver as `--sysroot`, which clang doesn't read an SDK version
-// from; it then stamps the binary with the deployment target instead (LC_BUILD_VERSION "sdk 15.0").
-// macOS decides from that stamp whether an app gets the current system design, so a binary stamped 15.0
-// runs in compatibility mode with no Liquid Glass. Passing the SDK as `-isysroot` as well makes clang
-// record the real version. scripts/build-app.sh verifies the result.
+// from; it then stamps the binary's SDK version with the deployment target instead. macOS decides from
+// that stamp whether an app gets the current system design (an old stamp means compatibility mode, with
+// no Liquid Glass), so pass the SDK as `-isysroot` as well, which makes clang record the real version.
+// scripts/build-app.sh verifies the result.
 let sdkRoot = Context.environment["SDKROOT"] ?? [
     "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
     "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk",
@@ -15,7 +15,7 @@ let sdkStamp: [LinkerSetting] = sdkRoot.map { [.unsafeFlags(["-Xclang-linker", "
 
 let package = Package(
     name: "XDRStat",
-    platforms: [.macOS(.v15)],
+    platforms: [.macOS("27.0")],
     targets: [
         .executableTarget(
             name: "XDRStat",
