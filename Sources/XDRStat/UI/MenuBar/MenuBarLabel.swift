@@ -58,11 +58,16 @@ enum LabelKind: Int, CaseIterable { case cpu, memory, network, sensors }
 
     private static let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 12.5, weight: .medium)
     private static let rateFont = NSFont.monospacedSystemFont(ofSize: 8.5, weight: .medium)
+    /// Width of a two-digit percentage: narrower values sit inside it, "100%" simply grows the item.
+    private static let twoDigitWidth = line("00%", valueFont).width
 
     private enum Item {
         case bars([Double], barWidth: CGFloat)              // 14 pt tall meters, 1.5 pt apart
-        case text(String, NSFont, box: CGFloat?)            // right-aligned in `box` when given
-        case twoLines(String, String, NSFont, box: CGFloat) // right-aligned
+        /// Text in a box at least `minWidth` wide (so the item doesn't jiggle as digits come and go),
+        /// placed at `align` within it: 0 leading, 0.5 centred, 1 trailing.
+        case text(String, NSFont, minWidth: CGFloat, align: CGFloat)
+        /// Two stacked rows, each a glyph pinned to the left edge and a value pinned to the right.
+        case twoLines(glyphs: (String, String), values: (String, String), NSFont, box: CGFloat)
         case symbol(String, pointSize: CGFloat)
         case mirrored(down: [Double], up: [Double], scale: Double, size: CGSize)
         case sparkline([Double], size: CGSize)
@@ -73,27 +78,27 @@ enum LabelKind: Int, CaseIterable { case cpu, memory, network, sensors }
         case .cpu:
             let cpu = st.chip.cpu
             let pctText = String(format: "%.0f%%", cpu.usage * 100)
-            let pct = Item.text(pctText, valueFont, box: 36)
+            let pct = { (align: CGFloat) in Item.text(pctText, valueFont, minWidth: twoDigitWidth, align: align) }
             let spoken = "CPU \(pctText)"
             switch st.style {
-            case .graph: return ([.bars(cpu.clusters.isEmpty ? [cpu.usage] : cpu.clusters.map(\.usage), barWidth: 4.5), pct], 4, spoken)
-            case .text: return ([pct], 0, spoken)
-            case .compact: return ([.symbol("cpu", pointSize: 12), pct], 3, spoken)
+            case .graph: return ([.bars(cpu.clusters.isEmpty ? [cpu.usage] : cpu.clusters.map(\.usage), barWidth: 4.5), pct(0)], 4, spoken)
+            case .text: return ([pct(0.5)], 0, spoken)
+            case .compact: return ([.symbol("cpu", pointSize: 12), pct(0)], 3, spoken)
             }
         case .memory:
             let m = st.memory
             let pctText = String(format: "%.0f%%", m.usedFraction * 100)
-            let pct = Item.text(pctText, valueFont, box: 36)
+            let pct = { (align: CGFloat) in Item.text(pctText, valueFont, minWidth: twoDigitWidth, align: align) }
             let spoken = "Memory \(pctText) used"
             switch st.style {
-            case .graph: return ([.bars([m.pressure], barWidth: 5), pct], 4, spoken)
-            case .text: return ([pct], 0, spoken)
-            case .compact: return ([.symbol("memorychip", pointSize: 12), pct], 3, spoken)
+            case .graph: return ([.bars([m.pressure], barWidth: 5), pct(0)], 4, spoken)
+            case .text: return ([pct(0.5)], 0, spoken)
+            case .compact: return ([.symbol("memorychip", pointSize: 12), pct(0)], 3, spoken)
             }
         case .network:
             let n = st.network
             let up = Fmt.rate(n.upBytesPerSec), down = Fmt.rate(n.downBytesPerSec)
-            let lines = Item.twoLines("↑ " + up, "↓ " + down, rateFont, box: 66)
+            let lines = Item.twoLines(glyphs: ("↑", "↓"), values: (up, down), rateFont, box: 58)
             let spoken = "Upload \(up), download \(down)"
             switch st.style {
             case .graph:
@@ -106,7 +111,7 @@ enum LabelKind: Int, CaseIterable { case cpu, memory, network, sensors }
             }
         case .sensors:
             let (vals, pinned) = sensorValues(st)
-            let text = Item.text(vals.joined(separator: " "), valueFont, box: nil)
+            let text = Item.text(vals.joined(separator: " "), valueFont, minWidth: 0, align: 0)
             let spoken = pinned ? "Sensors " + vals.joined(separator: ", ") : "CPU temperature \(vals.joined())"
             // The graph follows the first pinned sensor, or the CPU temperature.
             let history = pinned ? st.pinnedHistory : st.cpuTempHistory
@@ -139,7 +144,7 @@ enum LabelKind: Int, CaseIterable { case cpu, memory, network, sensors }
     private static func width(_ item: Item) -> CGFloat {
         switch item {
         case .bars(let v, let w): return CGFloat(v.count) * w + CGFloat(max(0, v.count - 1)) * 1.5
-        case .text(let s, let f, let box): return box ?? line(s, f).width
+        case .text(let s, let f, let minWidth, _): return max(minWidth, line(s, f).width)
         case .twoLines(_, _, _, let box): return box
         case .symbol(let name, let pt): return symbol(name, pt)?.size.width ?? 0
         case .mirrored(_, _, _, let size), .sparkline(_, let size): return size.width
@@ -178,16 +183,18 @@ enum LabelKind: Int, CaseIterable { case cpu, memory, network, sensors }
                 let bx = x + CGFloat(i) * (w + 1.5)
                 miniBar(v, in: CGRect(x: bx, y: (height - 14) / 2, width: w, height: 14), ctx)
             }
-        case .text(let s, let font, let box):
+        case .text(let s, let font, let minWidth, let align):
             let l = line(s, font)
-            let lx = box.map { x + $0 - l.width } ?? x
-            drawLine(l, x: lx, baseline: (height - l.ascent + l.descent + l.leading) / 2, ctx)
-        case .twoLines(let a, let b, let font, let box):
-            let la = line(a, font), lb = line(b, font)
-            let lh = la.ascent + la.descent + la.leading
+            drawLine(l, x: x + max(0, minWidth - l.width) * align, baseline: (height - l.ascent + l.descent + l.leading) / 2, ctx)
+        case .twoLines(let glyphs, let values, let font, let box):
+            let rows = [(line(glyphs.0, font), line(values.0, font)), (line(glyphs.1, font), line(values.1, font))]
+            let lh = rows[0].1.ascent + rows[0].1.descent + rows[0].1.leading
             let top = (height - 2 * lh) / 2                 // distance from the top edge, as a VStack would
-            drawLine(la, x: x + box - la.width, baseline: height - top - la.ascent, ctx)
-            drawLine(lb, x: x + box - lb.width, baseline: height - top - lh - lb.ascent, ctx)
+            for (i, row) in rows.enumerated() {
+                let baseline = height - top - CGFloat(i) * lh - row.1.ascent
+                drawLine(row.0, x: x, baseline: baseline, ctx)
+                drawLine(row.1, x: x + box - row.1.width, baseline: baseline, ctx)
+            }
         case .symbol(let name, let pt):
             guard let img = symbol(name, pt) else { return }
             img.draw(in: NSRect(x: x, y: (height - img.size.height) / 2, width: img.size.width, height: img.size.height))
